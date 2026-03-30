@@ -105,6 +105,12 @@ class ModelManager:
             logger.info("Model not found locally, downloading...")
             self.download(model_id, cache_dir)
 
+        # When running on CPU, hide CUDA entirely so the model's internal
+        # code (trust_remote_code) can't call .cuda() on tensors.
+        if self.device == "cpu":
+            os.environ["CUDA_VISIBLE_DEVICES"] = ""
+            logger.info("Set CUDA_VISIBLE_DEVICES='' to force CPU mode")
+
         logger.info(f"Loading model from {model_path} on {self.device}")
 
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -136,6 +142,7 @@ class ModelManager:
                 except RuntimeError as cuda_err:
                     logger.warning(f"CUDA loading failed ({cuda_err}), falling back to CPU")
                     self.device = "cpu"
+                    os.environ["CUDA_VISIBLE_DEVICES"] = ""
                     self.model = AutoModel.from_pretrained(
                         str(model_path),
                         _attn_implementation="eager",
@@ -150,6 +157,7 @@ class ModelManager:
                 _attn_implementation="eager",
                 trust_remote_code=True,
                 use_safetensors=True,
+                torch_dtype=torch.float32,
             )
             self.model = self.model.eval().float()
             logger.info("Loaded with eager attention on CPU (float32)")
