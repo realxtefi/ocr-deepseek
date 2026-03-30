@@ -17,7 +17,11 @@ def run_ocr(
     base_size: int = 1024,
     image_size: int = 768,
     crop_mode: bool = True,
-) -> str:
+) -> tuple[str, str]:
+    """Run OCR on an image. Returns (text, tmp_output_dir).
+
+    Caller must clean up tmp_output_dir after copying any figure images.
+    """
     manager = ModelManager()
 
     prompt = PROMPTS.get(mode)
@@ -27,7 +31,7 @@ def run_ocr(
     image_path = str(Path(image_path).resolve())
     logger.info(f"Running OCR on {image_path} (mode={mode})")
 
-    result = manager.infer(
+    text, tmp_out = manager.infer(
         image_path=image_path,
         prompt=prompt,
         base_size=base_size,
@@ -35,4 +39,4 @@ def run_ocr(
         crop_mode=crop_mode,
     )
 
-    return result
+    return text, tmp_out

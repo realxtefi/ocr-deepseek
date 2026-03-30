@@ -103,27 +103,36 @@ def step_create_zip(output_path: str, include_model: bool = True):
         exclude.add("models")
     exclude_extensions = {".pyc", ".pyo", ".zip"}
 
-    print(f"Creating {output}...")
+    # First pass: collect files to zip
+    files_to_zip = []
+    for path in sorted(ROOT.rglob("*")):
+        if not path.is_file():
+            continue
+        parts = path.relative_to(ROOT).parts
+        if any(p in exclude for p in parts):
+            continue
+        if path.suffix in exclude_extensions:
+            continue
+        files_to_zip.append(path)
+
+    total_files = len(files_to_zip)
     total_size = 0
+    print(f"Creating {output} ({total_files} files)...")
 
     with zipfile.ZipFile(str(output), "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
-        for path in sorted(ROOT.rglob("*")):
-            if not path.is_file():
-                continue
-
-            # Check exclusions
-            parts = path.relative_to(ROOT).parts
-            if any(p in exclude for p in parts):
-                continue
-            if path.suffix in exclude_extensions:
-                continue
-
+        for i, path in enumerate(files_to_zip):
             arcname = str(path.relative_to(ROOT))
+            file_size = path.stat().st_size
             zf.write(str(path), arcname)
-            total_size += path.stat().st_size
+            total_size += file_size
+
+            # Progress every 50 files or for large files (>10MB)
+            if (i + 1) % 50 == 0 or file_size > 10 * 1024 * 1024 or (i + 1) == total_files:
+                pct = ((i + 1) / total_files) * 100
+                print(f"  [{i + 1}/{total_files}] {pct:5.1f}%  {total_size / (1024**2):,.0f} MB  {arcname}")
 
     zip_size = output.stat().st_size
-    print(f"Total files size: {total_size / (1024**3):.2f} GB")
+    print(f"\nTotal files size: {total_size / (1024**3):.2f} GB")
     print(f"Compressed zip:   {zip_size / (1024**3):.2f} GB")
     print(f"Output: {output.resolve()}")
     return True

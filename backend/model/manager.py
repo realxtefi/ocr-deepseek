@@ -241,51 +241,52 @@ class ModelManager:
 
         return info
 
-    def infer(self, image_path: str, prompt: str, **kwargs) -> str:
+    def infer(self, image_path: str, prompt: str, **kwargs) -> tuple[str, str]:
+        """Run OCR on an image. Returns (text, tmp_output_dir).
+
+        The caller is responsible for cleaning up tmp_output_dir after
+        copying any needed files (e.g. images/ subfolder with figure crops).
+        """
         if not self.is_loaded():
             raise RuntimeError("Model not loaded. Call load() first.")
 
         import glob
-        import shutil
         import tempfile
 
         with self._inference_lock:
             # model.infer() returns None when save_results=False.
             # Must use save_results=True and read the output file.
             tmp_out = tempfile.mkdtemp(prefix="ocr_out_")
-            try:
-                result = self.model.infer(
-                    self.tokenizer,
-                    prompt=prompt,
-                    image_file=image_path,
-                    output_path=tmp_out,
-                    base_size=kwargs.get("base_size", 1024),
-                    image_size=kwargs.get("image_size", 768),
-                    crop_mode=kwargs.get("crop_mode", True),
-                    save_results=True,
-                )
 
-                # If model returned text directly, use it
-                if result is not None and isinstance(result, str) and result.strip():
-                    return result
+            result = self.model.infer(
+                self.tokenizer,
+                prompt=prompt,
+                image_file=image_path,
+                output_path=tmp_out,
+                base_size=kwargs.get("base_size", 1024),
+                image_size=kwargs.get("image_size", 768),
+                crop_mode=kwargs.get("crop_mode", True),
+                save_results=True,
+            )
 
-                # Otherwise read from saved output files
-                output_files = sorted(glob.glob(os.path.join(tmp_out, "*.md")))
-                if not output_files:
-                    output_files = sorted(glob.glob(os.path.join(tmp_out, "*.txt")))
-                if not output_files:
-                    # Try any text file in the output dir
-                    output_files = sorted(glob.glob(os.path.join(tmp_out, "*")))
+            # If model returned text directly, use it
+            if result is not None and isinstance(result, str) and result.strip():
+                return result, tmp_out
 
-                for f in output_files:
-                    if os.path.isfile(f):
-                        text = Path(f).read_text(encoding="utf-8", errors="ignore").strip()
-                        if text:
-                            return text
+            # Otherwise read from saved output files
+            output_files = sorted(glob.glob(os.path.join(tmp_out, "*.md")))
+            if not output_files:
+                output_files = sorted(glob.glob(os.path.join(tmp_out, "*.txt")))
+            if not output_files:
+                output_files = sorted(glob.glob(os.path.join(tmp_out, "*")))
 
-                # Last resort: convert result to string
-                if result is not None:
-                    return str(result)
-                return ""
-            finally:
-                shutil.rmtree(tmp_out, ignore_errors=True)
+            for f in output_files:
+                if os.path.isfile(f):
+                    text = Path(f).read_text(encoding="utf-8", errors="ignore").strip()
+                    if text:
+                        return text, tmp_out
+
+            # Last resort
+            if result is not None:
+                return str(result), tmp_out
+            return "", tmp_out

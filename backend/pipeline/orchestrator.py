@@ -136,14 +136,35 @@ class Orchestrator:
             if not images:
                 return FileResult(file_path=str(file_path), error="No images produced from conversion")
 
-            # Run OCR on each image
+            # Run OCR on each image, collect figure images from model output
             page_texts = []
+            ocr_tmp_dirs = []  # temp dirs with model's saved figure images
             for img_path in images:
                 if job and job.cancelled:
                     return FileResult(file_path=str(file_path), error="Cancelled")
-                text = run_ocr(img_path, mode=ocr_mode)
-                # model.infer() can return None for some pages — treat as empty
+                text, tmp_out = run_ocr(img_path, mode=ocr_mode)
                 page_texts.append(text if text is not None else "")
+                ocr_tmp_dirs.append(tmp_out)
+
+            # Copy figure images from model's temp output to output/images/
+            # Model saves cropped figures as images/0.jpg, images/1.jpg, etc.
+            images_dir = output_dir / "images"
+            images_dir.mkdir(exist_ok=True)
+            for tmp_out in ocr_tmp_dirs:
+                model_images_dir = Path(tmp_out) / "images"
+                if model_images_dir.exists():
+                    for img_file in sorted(model_images_dir.iterdir()):
+                        if img_file.is_file():
+                            dest = images_dir / img_file.name
+                            # Avoid overwriting across pages: prefix with page number if collision
+                            if dest.exists():
+                                page_idx = ocr_tmp_dirs.index(tmp_out)
+                                dest = images_dir / f"p{page_idx}_{img_file.name}"
+                            shutil.copy2(str(img_file), str(dest))
+
+            # Clean up model temp dirs
+            for tmp_out in ocr_tmp_dirs:
+                shutil.rmtree(tmp_out, ignore_errors=True)
 
             raw_text = "\n\n---\n\n".join(page_texts)
 
@@ -167,21 +188,12 @@ class Orchestrator:
             # Write output file
             ext = get_file_extension(output_format)
             output_path = output_dir / f"{file_path.stem}{ext}"
-            # Avoid name collisions
             counter = 1
             while output_path.exists():
                 output_path = output_dir / f"{file_path.stem}_{counter}{ext}"
                 counter += 1
 
             output_path.write_text(content, encoding="utf-8")
-
-            # Copy rendered page images to output/images/
-            # Model outputs ![](images/0.jpg) — we save the actual page PNGs
-            images_dir = output_dir / "images"
-            images_dir.mkdir(exist_ok=True)
-            for i, img_path in enumerate(images):
-                dest = images_dir / f"{i}.jpg"
-                shutil.copy2(str(img_path), str(dest))
 
             return FileResult(
                 file_path=str(file_path),
