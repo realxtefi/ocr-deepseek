@@ -4,7 +4,26 @@ import JobQueue from '../components/JobQueue'
 import ModelStatus from '../components/ModelStatus'
 import ResultViewer from '../components/ResultViewer'
 import SettingsPanel from '../components/SettingsPanel'
-import { getJob, getStatus, processFile } from '../api'
+import { getJob, getStatus, listJobs, processFile } from '../api'
+
+const LS_SETTINGS = 'ocr_settings'
+const LS_JOBS = 'ocr_jobs'
+const LS_SELECTED = 'ocr_selected_job'
+
+function loadLS<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? JSON.parse(raw) : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function saveLS(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch { /* quota exceeded or private mode */ }
+}
 
 interface JobInfo {
   job_id: string
@@ -15,20 +34,56 @@ interface JobInfo {
   completed_files: number
 }
 
+const defaultSettings = {
+  output_format: 'json',
+  ocr_mode: 'layout',
+  pages: '',
+  scientific: true,
+  workers: 1,
+}
+
 export default function ProcessPage() {
   const [files, setFiles] = useState<File[]>([])
-  const [settings, setSettings] = useState({
-    output_format: 'json',
-    ocr_mode: 'layout',
-    pages: '',
-    scientific: true,
-    workers: 1,
-  })
-  const [jobs, setJobs] = useState<JobInfo[]>([])
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
+  const [settings, setSettings] = useState(() => loadLS(LS_SETTINGS, defaultSettings))
+  const [jobs, setJobs] = useState<JobInfo[]>(() => loadLS(LS_JOBS, []))
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(() => loadLS(LS_SELECTED, null))
   const [processing, setProcessing] = useState(false)
   const [modelReady, setModelReady] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Persist settings, jobs, selectedJobId to localStorage on change
+  useEffect(() => { saveLS(LS_SETTINGS, settings) }, [settings])
+  useEffect(() => { saveLS(LS_JOBS, jobs) }, [jobs])
+  useEffect(() => { saveLS(LS_SELECTED, selectedJobId) }, [selectedJobId])
+
+  // On mount: refresh jobs from server (in case page was refreshed mid-processing)
+  useEffect(() => {
+    const refreshJobs = async () => {
+      try {
+        const data = await listJobs()
+        const serverJobs: JobInfo[] = data.jobs || []
+        if (serverJobs.length > 0) {
+          setJobs(prev => {
+            const serverIds = new Set(serverJobs.map((j: JobInfo) => j.job_id))
+            // Merge: update known jobs from server, keep local ones not on server
+            const merged = prev.map(j =>
+              serverIds.has(j.job_id)
+                ? serverJobs.find((sj: JobInfo) => sj.job_id === j.job_id)!
+                : j
+            )
+            // Add any server jobs not in local state
+            for (const sj of serverJobs) {
+              if (!prev.some(j => j.job_id === sj.job_id)) {
+                merged.push(sj)
+              }
+            }
+            return merged
+          })
+        }
+      } catch { /* server not ready yet */ }
+    }
+    refreshJobs()
+  }, [])
 
   // Check model status
   useEffect(() => {
@@ -114,6 +169,11 @@ export default function ProcessPage() {
     }
   }
 
+  const handleClearJobs = () => {
+    setJobs([])
+    setSelectedJobId(null)
+  }
+
   return (
     <div className="process-layout">
       {/* Left column: controls */}
@@ -146,6 +206,15 @@ export default function ProcessPage() {
         </div>
 
         <JobQueue jobs={jobs} onSelect={setSelectedJobId} selectedJobId={selectedJobId} />
+        {jobs.length > 0 && (
+          <button
+            className="btn btn-secondary"
+            onClick={handleClearJobs}
+            style={{ width: '100%', fontSize: '0.8rem', padding: '6px 12px' }}
+          >
+            Clear job history
+          </button>
+        )}
       </div>
 
       {/* Right column: results */}

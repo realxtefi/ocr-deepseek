@@ -27,8 +27,13 @@ export default function App() {
         </nav>
       </header>
 
-      {page === 'process' && <ProcessPage />}
-      {page === 'settings' && <SettingsPage />}
+      {/* Keep both pages mounted so state is preserved on tab switch */}
+      <div style={{ display: page === 'process' ? 'block' : 'none' }}>
+        <ProcessPage />
+      </div>
+      <div style={{ display: page === 'settings' ? 'block' : 'none' }}>
+        <SettingsPage />
+      </div>
     </div>
   )
 }
