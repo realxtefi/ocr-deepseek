@@ -101,7 +101,7 @@ def step_create_zip(output_path: str, include_model: bool = True):
     }
     if not include_model:
         exclude.add("models")
-    exclude_extensions = {".pyc", ".pyo"}
+    exclude_extensions = {".pyc", ".pyo", ".zip"}
 
     print(f"Creating {output}...")
     total_size = 0
