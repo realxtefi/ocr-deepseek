@@ -57,20 +57,14 @@ fi
 if [ -d "vendor/common" ]; then
     echo "Installing from local vendor packages (portable mode)..."
 
-    # Common deps
-    pip install -q --no-index --find-links vendor/common -r requirements.txt 2>/dev/null
-    if [ $? -ne 0 ]; then
-        pip install -q --no-index --find-links vendor/common --find-links vendor/cpu --find-links vendor/gpu -r requirements.txt 2>/dev/null
-    fi
-
-    # Device-specific torch
+    # Install torch + torchvision FIRST (device-specific)
     if [ "$DEVICE" = "cuda" ]; then
-        echo "Installing GPU PyTorch from vendor/gpu..."
-        pip install -q --no-index --find-links vendor/gpu --find-links vendor/common torch==2.6.0 --force-reinstall 2>/dev/null
+        echo "Installing GPU PyTorch + torchvision from vendor/gpu..."
+        pip install -q --no-index --find-links vendor/gpu --find-links vendor/common torch==2.6.0 torchvision==0.21.0 --force-reinstall 2>/dev/null
         if [ $? -ne 0 ]; then
             echo "GPU torch failed from vendor. Falling back to CPU..."
             DEVICE="cpu"
-            pip install -q --no-index --find-links vendor/cpu --find-links vendor/common torch --force-reinstall 2>/dev/null
+            pip install -q --no-index --find-links vendor/cpu --find-links vendor/common torch torchvision --force-reinstall 2>/dev/null
         fi
         # flash-attn (optional)
         pip install -q --no-index --find-links vendor/gpu flash-attn 2>/dev/null
@@ -78,9 +72,13 @@ if [ -d "vendor/common" ]; then
             echo "flash-attn not in vendor (OK). Using eager attention."
         fi
     else
-        echo "Installing CPU PyTorch from vendor/cpu..."
-        pip install -q --no-index --find-links vendor/cpu --find-links vendor/common torch --force-reinstall 2>/dev/null
+        echo "Installing CPU PyTorch + torchvision from vendor/cpu..."
+        pip install -q --no-index --find-links vendor/cpu --find-links vendor/common torch torchvision --force-reinstall 2>/dev/null
     fi
+
+    # Now install remaining deps (search all vendor dirs)
+    echo "Installing remaining dependencies from vendor..."
+    pip install -q --no-index --find-links vendor/common --find-links vendor/cpu --find-links vendor/gpu -r requirements.txt 2>/dev/null
 else
     echo "Installing from internet..."
 
