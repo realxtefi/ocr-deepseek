@@ -101,18 +101,19 @@ def download_gpu_wheels(plat: str, python_version: str):
         "--only-binary=:all:",
     ], f"Downloading PyTorch CUDA → vendor/gpu/")
 
-    # flash-attn (may fail on some platforms — that's OK)
+    # flash-attn (pre-built wheels only — skip if unavailable for this platform)
     ret = run([
         sys.executable, "-m", "pip", "download",
         f"flash-attn=={FLASH_ATTN_VERSION}",
         "--dest", str(dest),
-        "--no-build-isolation",
         "--only-binary=:all:",
+        "--platform", plat,
+        "--python-version", python_version,
     ], f"Downloading flash-attn → vendor/gpu/ (optional)")
 
     if ret != 0:
-        print("Note: flash-attn wheel not available as pre-built binary.")
-        print("GPU mode will use eager attention (still fast, just not as fast).")
+        print("Note: No pre-built flash-attn wheel for this platform.")
+        print("GPU mode will use eager attention (still fast with bf16).")
 
 
 def download_for_current_platform():
@@ -142,13 +143,17 @@ def download_for_current_platform():
         "--dest", str(VENDOR / "gpu"),
     ], "Downloading PyTorch CUDA")
 
-    # flash-attn (optional)
-    run([
+    # flash-attn (optional — pre-built wheels only, skip if unavailable)
+    ret = run([
         sys.executable, "-m", "pip", "download",
         f"flash-attn=={FLASH_ATTN_VERSION}",
         "--dest", str(VENDOR / "gpu"),
-        "--no-build-isolation",
-    ], "Downloading flash-attn (optional)")
+        "--only-binary=:all:",
+    ], "Downloading flash-attn (optional, pre-built only)")
+
+    if ret != 0:
+        print("Note: No pre-built flash-attn wheel for this platform.")
+        print("GPU mode will use eager attention (still fast with bf16).")
 
 
 def show_summary():

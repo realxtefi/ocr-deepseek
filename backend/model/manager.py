@@ -74,7 +74,6 @@ class ModelManager:
             snapshot_download(
                 repo_id=model_id,
                 local_dir=str(model_path),
-                local_dir_use_symlinks=False,
             )
             self._download_progress = 100.0
             if progress_callback:

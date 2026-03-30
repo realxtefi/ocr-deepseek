@@ -16,6 +16,7 @@ Usage:
 """
 
 import argparse
+import platform
 import shutil
 import subprocess
 import sys
@@ -23,11 +24,12 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
+IS_WINDOWS = platform.system() == "Windows"
 
 
-def run(cmd, desc="", cwd=None):
+def run(cmd, desc="", cwd=None, shell=False):
     print(f"\n>>> {desc or ' '.join(str(c) for c in cmd[:6])}")
-    result = subprocess.run(cmd, cwd=cwd)
+    result = subprocess.run(cmd, cwd=cwd, shell=shell)
     return result.returncode == 0
 
 
@@ -62,7 +64,6 @@ def step_download_model():
     snapshot_download(
         repo_id="deepseek-ai/DeepSeek-OCR-2",
         local_dir=str(model_dir),
-        local_dir_use_symlinks=False,
     )
     print("Model downloaded.")
     return True
@@ -80,8 +81,9 @@ def step_build_frontend():
         print("The CLI will still work without the web UI.")
         return True
 
-    run(["npm", "install"], "npm install", cwd=frontend)
-    return run(["npm", "run", "build"], "npm run build", cwd=frontend)
+    # On Windows, npm is a .cmd file and requires shell=True
+    run(["npm", "install"], "npm install", cwd=frontend, shell=IS_WINDOWS)
+    return run(["npm", "run", "build"], "npm run build", cwd=frontend, shell=IS_WINDOWS)
 
 
 def step_create_zip(output_path: str):
