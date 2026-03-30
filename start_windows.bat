@@ -33,43 +33,74 @@ call venv\Scripts\activate.bat
 echo Installing core dependencies...
 pip install -q -r requirements.txt
 
-:: Step 2: Check if torch is already installed, if not install CPU version first
-python -c "import torch" 2>nul
-if errorlevel 1 (
-    echo Installing PyTorch...
-    echo Trying GPU version first...
-    pip install -q torch==2.6.0 2>nul
-    if errorlevel 1 (
-        echo GPU torch failed. Installing CPU version...
+:: Step 2: Detect NVIDIA GPU at hardware level (works without torch)
+echo Detecting hardware...
+set HAS_NVIDIA=0
+nvidia-smi >nul 2>&1
+if not errorlevel 1 set HAS_NVIDIA=1
+
+:: Step 3: Check current torch status
+:: TORCH_CUDA will be "1" if torch is installed with CUDA support, "0" if CPU-only, "" if not installed
+python -c "import torch; print('1' if torch.cuda.is_available() else '0')" > .torch_check 2>nul
+set /p TORCH_CUDA=<.torch_check
+del .torch_check 2>nul
+
+:: Step 4: Install or upgrade torch based on hardware vs current install
+if "%HAS_NVIDIA%"=="1" (
+    :: GPU machine
+    if "%TORCH_CUDA%"=="1" (
+        echo PyTorch with CUDA already installed.
+    ) else (
+        :: Either no torch or CPU-only torch on a GPU machine — install GPU version
+        if "%TORCH_CUDA%"=="0" (
+            echo CPU-only PyTorch detected on GPU machine. Upgrading to CUDA version...
+        ) else (
+            echo Installing PyTorch with CUDA support...
+        )
+        pip install -q torch==2.6.0 --force-reinstall 2>nul
+        if errorlevel 1 (
+            echo GPU torch install failed. Falling back to CPU version...
+            pip install -q -r requirements-cpu.txt
+        )
+    )
+) else (
+    :: CPU-only machine
+    if "%TORCH_CUDA%"=="" (
+        echo No NVIDIA GPU detected. Installing CPU PyTorch...
         pip install -q -r requirements-cpu.txt
+    ) else (
+        echo PyTorch already installed.
     )
 )
 
-:: Step 3: Now detect GPU with torch installed
-echo Detecting hardware...
+:: Step 5: Final device detection with installed torch
 python -c "import torch; print('cuda' if torch.cuda.is_available() else 'cpu')" > .device_check 2>nul
 set /p DEVICE=<.device_check
 del .device_check 2>nul
-
 if "%DEVICE%"=="" set DEVICE=cpu
 
 echo Detected device: %DEVICE%
 
-:: Step 4: If GPU available, try to install flash-attn for better performance
+:: Step 6: If GPU, try flash-attn
 if "%DEVICE%"=="cuda" (
-    echo GPU detected! Installing flash-attention for acceleration...
-    pip install -q flash-attn==2.7.3 --no-build-isolation 2>nul
+    python -c "import flash_attn" 2>nul
     if errorlevel 1 (
-        echo flash-attn install failed ^(this is OK^). Using eager attention on GPU.
+        echo Installing flash-attention for GPU acceleration...
+        pip install -q flash-attn==2.7.3 --no-build-isolation 2>nul
+        if errorlevel 1 (
+            echo flash-attn install failed ^(this is OK^). Using eager attention on GPU.
+        ) else (
+            echo flash-attn installed successfully.
+        )
     ) else (
-        echo flash-attn installed successfully.
+        echo flash-attn already installed.
     )
 ) else (
     echo Running in CPU mode.
     echo Tip: A CUDA-capable NVIDIA GPU with 6+GB VRAM will significantly speed up processing.
 )
 
-:: Step 5: Build frontend if needed
+:: Step 7: Build frontend if needed
 if not exist "frontend\dist" (
     where npm >nul 2>&1
     if errorlevel 1 (
