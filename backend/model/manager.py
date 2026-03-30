@@ -203,13 +203,20 @@ class ModelManager:
         if not self.is_loaded():
             raise RuntimeError("Model not loaded. Call load() first.")
 
+        import tempfile
+
         with self._inference_lock:
+            # The model requires output_path even if we don't need saved files.
+            # Use a temp dir to avoid WinError 3 from empty path default.
+            tmp_out = kwargs.get("output_path") or tempfile.mkdtemp(prefix="ocr_out_")
             result = self.model.infer(
                 self.tokenizer,
                 prompt=prompt,
                 image_file=image_path,
+                output_path=tmp_out,
                 base_size=kwargs.get("base_size", 1024),
                 image_size=kwargs.get("image_size", 768),
                 crop_mode=kwargs.get("crop_mode", True),
+                save_results=kwargs.get("save_results", False),
             )
             return result
