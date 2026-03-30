@@ -16,6 +16,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+class _StatusEndpointFilter(logging.Filter):
+    """Suppress repetitive /api/v1/status access logs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "/api/v1/status" not in record.getMessage()
+
+
+logging.getLogger("uvicorn.access").addFilter(_StatusEndpointFilter())
+
 app = FastAPI(
     title="DeepSeek-OCR-2 Document Processor",
     version="1.0.0",
