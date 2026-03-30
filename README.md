@@ -144,12 +144,12 @@ venv\Scripts\activate
 source venv/bin/activate
 
 # 2. Install PyTorch
-# GPU (CUDA):
-pip install torch==2.6.0
+# GPU (CUDA) — MUST use the CUDA index URL, default PyPI torch has no CUDA:
+pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
 pip install flash-attn==2.7.3 --no-build-isolation    # optional, for faster inference
 
 # CPU only:
-pip install torch==2.6.0+cpu --index-url https://download.pytorch.org/whl/cpu
+pip install torch==2.6.0+cpu torchvision==0.21.0+cpu --index-url https://download.pytorch.org/whl/cpu
 
 # 3. Install dependencies
 pip install -r requirements.txt
@@ -198,10 +198,12 @@ python scripts/build_portable.py --output my_ocr_package.zip
 This creates:
 ```
 vendor/
-  common/   - All shared dependencies (fastapi, transformers, Pillow, etc.)
-  cpu/      - PyTorch CPU-only wheels (~300MB)
-  gpu/      - PyTorch CUDA wheels + flash-attn (~2GB)
+  common/   - All shared dependencies (fastapi, transformers, Pillow, etc.)  ~60MB
+  cpu/      - PyTorch + torchvision CPU-only wheels                          ~250MB
+  gpu/      - PyTorch + torchvision CUDA 12.4 wheels                         ~2.5GB
 ```
+
+> **Important:** GPU wheels are downloaded from `https://download.pytorch.org/whl/cu124`. Default PyPI torch does **not** include CUDA and is only ~200MB — if your `vendor/gpu/torch*.whl` is under 1GB, it's the wrong build. Re-run `download_wheels.py`.
 
 ### Deploy to Offline Machine
 
@@ -493,8 +495,10 @@ The model manager tries loading in this order, falling through on failure:
 2. eager attention on CUDA (bf16)       ← still fast, no flash-attn needed
       │ RuntimeError (OOM / CUDA error)
       ▼
-3. eager attention on CPU (float32)     ← slowest, works everywhere
+3. eager attention on CPU (bf16)        ← slower, works everywhere
 ```
+
+On CPU, the model runs in **bfloat16** (not float32) to match the model's native weight format and its internal `torch.autocast` calls. A monkey-patch redirects the model's hardcoded `torch.autocast("cuda")` to `torch.autocast("cpu")` and patches `Tensor.cuda()` to be a no-op, so the model's custom code works transparently on CPU-only torch builds.
 
 This means the app **always works** regardless of GPU availability, CUDA version, or whether flash-attn compiled successfully.
 
@@ -754,9 +758,12 @@ Approximate processing times per page (standard A4 scientific paper, 300 DPI, la
 | Device | Time per Page | Notes |
 |--------|---------------|-------|
 | NVIDIA RTX 3090 (24GB) | ~2-4 sec | flash_attention_2 |
-| NVIDIA RTX 3060 (6GB) | ~4-8 sec | eager attention |
 | NVIDIA RTX 3060 (6GB) | ~3-6 sec | flash_attention_2 |
-| CPU (modern 8-core) | ~30-60 sec | float32 |
+| NVIDIA RTX 3060 (6GB) | ~4-8 sec | eager attention |
+| CPU (12th gen i7) | ~2-3 min | bfloat16, eager attention |
+| CPU (older 4-core) | ~3-5 min | bfloat16, eager attention |
+
+> **GPU VRAM note:** The 3B model in bf16 needs ~6GB VRAM. GPUs with less VRAM (e.g. RTX 3050 4GB) will automatically fall back to CPU mode.
 
 **Tips for faster CPU processing:**
 - Lower DPI: set `processing.pdf_dpi: 150` in config (trades quality for speed)
@@ -778,11 +785,30 @@ Building flash-attn from source requires CUDA Toolkit and a C++ compiler (MSVC).
 
 ### CUDA out of memory
 
-The 3B model in bf16 needs ~6GB VRAM. Close other GPU applications. If your GPU has less VRAM:
+The 3B model in bf16 needs ~6GB VRAM. Close other GPU applications. If your GPU has less VRAM (e.g. RTX 3050 Laptop with 4GB):
 ```bash
 python -m cli.main --device cpu process paper.pdf
 ```
-Or switch to CPU in the web UI via the device dropdown.
+Or switch to CPU in the web UI via the device dropdown. The model will auto-fall back to CPU if CUDA OOM occurs during loading.
+
+### GPU detected but still running on CPU
+
+Two common causes:
+
+1. **Wrong torch build**: Default PyPI torch has no CUDA. Must install from the CUDA index:
+   ```bash
+   pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124 --force-reinstall
+   ```
+   For portable builds, verify `vendor/gpu/torch*.whl` is ~2.5GB (not ~200MB).
+
+2. **Insufficient VRAM**: The auto-detector requires 4+ GB free VRAM. GPUs with less fall back to CPU.
+
+### Page file too small (Windows)
+
+If you see `The paging file is too small for this operation to complete` (OS error 1455), your machine ran out of RAM + swap. The model needs ~6GB in bf16. Fix:
+- Settings → System → About → Advanced system settings → Performance → Settings → Advanced → Virtual memory → Change
+- Set Custom size: Initial **16384 MB**, Maximum **32768 MB**
+- Click Set → OK → Restart
 
 ### CPU-only torch on a GPU machine
 
@@ -790,7 +816,7 @@ If you set up the environment on a CPU machine and moved it to a GPU machine, th
 ```bash
 start_windows.bat --gpu
 # or manually:
-pip install torch==2.6.0 --force-reinstall
+pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124 --force-reinstall
 ```
 
 ### DOCX conversion fails
