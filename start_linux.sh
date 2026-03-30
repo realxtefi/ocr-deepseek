@@ -87,8 +87,8 @@ else
 
     # Torch
     if [ "$DEVICE" = "cuda" ]; then
-        echo "Installing GPU PyTorch..."
-        pip install -q torch==2.6.0 --force-reinstall 2>/dev/null
+        echo "Installing GPU PyTorch from CUDA index..."
+        pip install -q torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124 --force-reinstall 2>/dev/null
         if [ $? -ne 0 ]; then
             echo "GPU torch failed. Falling back to CPU..."
             DEVICE="cpu"

@@ -114,8 +114,8 @@ pip install -q -r requirements.txt
 
 :: Torch
 if "%DEVICE%"=="cuda" (
-    echo Installing GPU PyTorch...
-    pip install -q torch==2.6.0 --force-reinstall 2>nul
+    echo Installing GPU PyTorch from CUDA index...
+    pip install -q torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124 --force-reinstall 2>nul
     if errorlevel 1 (
         echo GPU torch failed. Falling back to CPU...
         set DEVICE=cpu

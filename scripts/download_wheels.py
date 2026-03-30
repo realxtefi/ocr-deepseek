@@ -92,7 +92,8 @@ def download_gpu_wheels(plat: str, python_version: str):
     dest = VENDOR / "gpu"
     dest.mkdir(parents=True, exist_ok=True)
 
-    # PyTorch with CUDA
+    # PyTorch with CUDA — must use the CUDA index to get the actual GPU build
+    # Default PyPI torch does NOT include CUDA on Windows (~200MB vs ~2.5GB)
     run([
         sys.executable, "-m", "pip", "download",
         f"torch=={TORCH_VERSION}",
@@ -101,7 +102,8 @@ def download_gpu_wheels(plat: str, python_version: str):
         "--platform", plat,
         "--python-version", python_version,
         "--only-binary=:all:",
-    ], f"Downloading PyTorch + torchvision CUDA → vendor/gpu/")
+        "--index-url", f"https://download.pytorch.org/whl/{CUDA_SUFFIX}",
+    ], f"Downloading PyTorch + torchvision CUDA ({CUDA_SUFFIX}) → vendor/gpu/")
 
     # flash-attn (pre-built wheels only — skip if unavailable for this platform)
     ret = run([
@@ -139,13 +141,14 @@ def download_for_current_platform():
         "--index-url", "https://download.pytorch.org/whl/cpu",
     ], "Downloading PyTorch + torchvision CPU")
 
-    # GPU torch
+    # GPU torch — must use CUDA index URL to get the actual GPU build
     run([
         sys.executable, "-m", "pip", "download",
         f"torch=={TORCH_VERSION}",
         "torchvision==0.21.0",
         "--dest", str(VENDOR / "gpu"),
-    ], "Downloading PyTorch + torchvision CUDA")
+        "--index-url", f"https://download.pytorch.org/whl/{CUDA_SUFFIX}",
+    ], f"Downloading PyTorch + torchvision CUDA ({CUDA_SUFFIX})")
 
     # flash-attn (optional — pre-built wheels only, skip if unavailable)
     ret = run([
