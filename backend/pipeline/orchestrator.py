@@ -55,7 +55,7 @@ class Job:
     def to_dict(self) -> dict:
         return {
             "job_id": self.job_id,
-            "status": self.status.value,
+            "status": self.status.value if hasattr(self.status, "value") else str(self.status),
             "progress_percent": self.progress_percent,
             "current_file": self.current_file,
             "total_files": self.total_files,

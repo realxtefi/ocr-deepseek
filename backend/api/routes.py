@@ -122,6 +122,8 @@ async def process_file(
 
     output_dir = Path(config.output.default_dir)
 
+    from backend.pipeline.orchestrator import JobStatus
+
     def do_process():
         try:
             result = orchestrator.process_file(
@@ -136,18 +138,15 @@ async def process_file(
             job.results.append(result)
             if result.error:
                 job.errors.append(result.error)
-                job.status = "completed"
-            else:
-                job.status = "completed"
+            job.status = JobStatus.COMPLETED
             job.completed_files = 1
             job.progress_percent = 100.0
         except Exception as e:
-            job.status = "failed"
+            job.status = JobStatus.FAILED
             job.errors.append(str(e))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    from backend.pipeline.orchestrator import JobStatus
     job.status = JobStatus.PROCESSING
     background_tasks.add_task(do_process)
 
