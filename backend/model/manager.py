@@ -245,20 +245,47 @@ class ModelManager:
         if not self.is_loaded():
             raise RuntimeError("Model not loaded. Call load() first.")
 
+        import glob
+        import shutil
         import tempfile
 
         with self._inference_lock:
-            # The model requires output_path even if we don't need saved files.
-            # Use a temp dir to avoid WinError 3 from empty path default.
-            tmp_out = kwargs.get("output_path") or tempfile.mkdtemp(prefix="ocr_out_")
-            result = self.model.infer(
-                self.tokenizer,
-                prompt=prompt,
-                image_file=image_path,
-                output_path=tmp_out,
-                base_size=kwargs.get("base_size", 1024),
-                image_size=kwargs.get("image_size", 768),
-                crop_mode=kwargs.get("crop_mode", True),
-                save_results=kwargs.get("save_results", False),
-            )
-            return result
+            # model.infer() returns None when save_results=False.
+            # Must use save_results=True and read the output file.
+            tmp_out = tempfile.mkdtemp(prefix="ocr_out_")
+            try:
+                result = self.model.infer(
+                    self.tokenizer,
+                    prompt=prompt,
+                    image_file=image_path,
+                    output_path=tmp_out,
+                    base_size=kwargs.get("base_size", 1024),
+                    image_size=kwargs.get("image_size", 768),
+                    crop_mode=kwargs.get("crop_mode", True),
+                    save_results=True,
+                )
+
+                # If model returned text directly, use it
+                if result is not None and isinstance(result, str) and result.strip():
+                    return result
+
+                # Otherwise read from saved output files
+                output_files = sorted(glob.glob(os.path.join(tmp_out, "*.md")))
+                if not output_files:
+                    output_files = sorted(glob.glob(os.path.join(tmp_out, "*.txt")))
+                if not output_files:
+                    # Try any text file in the output dir
+                    output_files = sorted(glob.glob(os.path.join(tmp_out, "*")))
+
+                for f in output_files:
+                    if os.path.isfile(f):
+                        text = Path(f).read_text(encoding="utf-8", errors="ignore").strip()
+                        if text:
+                            return text
+
+                # Last resort: convert result to string
+                if result is not None:
+                    return str(result)
+                return ""
+            finally:
+                shutil.rmtree(tmp_out, ignore_errors=True)
