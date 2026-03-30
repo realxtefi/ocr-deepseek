@@ -5,6 +5,17 @@ echo  DeepSeek-OCR-2 Document Processor
 echo ============================================
 echo.
 
+:: Parse arguments
+set FORCE_DEVICE=auto
+:parse_args
+if "%~1"=="" goto :done_args
+if "%~1"=="--cpu" set FORCE_DEVICE=cpu
+if "%~1"=="--gpu" set FORCE_DEVICE=gpu
+if "%~1"=="--auto" set FORCE_DEVICE=auto
+shift
+goto :parse_args
+:done_args
+
 :: Check Python
 python --version >nul 2>&1
 if errorlevel 1 (
@@ -29,78 +40,116 @@ if not exist "venv" (
 :: Activate venv
 call venv\Scripts\activate.bat
 
-:: Step 1: Install core dependencies first (includes torch-less packages)
-echo Installing core dependencies...
-pip install -q -r requirements.txt
-
-:: Step 2: Detect NVIDIA GPU at hardware level (works without torch)
-echo Detecting hardware...
-set HAS_NVIDIA=0
-nvidia-smi >nul 2>&1
-if not errorlevel 1 set HAS_NVIDIA=1
-
-:: Step 3: Check current torch status
-:: TORCH_CUDA will be "1" if torch is installed with CUDA support, "0" if CPU-only, "" if not installed
-python -c "import torch; print('1' if torch.cuda.is_available() else '0')" > .torch_check 2>nul
-set /p TORCH_CUDA=<.torch_check
-del .torch_check 2>nul
-
-:: Step 4: Install or upgrade torch based on hardware vs current install
-if "%HAS_NVIDIA%"=="1" (
-    :: GPU machine
-    if "%TORCH_CUDA%"=="1" (
-        echo PyTorch with CUDA already installed.
-    ) else (
-        :: Either no torch or CPU-only torch on a GPU machine — install GPU version
-        if "%TORCH_CUDA%"=="0" (
-            echo CPU-only PyTorch detected on GPU machine. Upgrading to CUDA version...
-        ) else (
-            echo Installing PyTorch with CUDA support...
-        )
-        pip install -q torch==2.6.0 --force-reinstall 2>nul
-        if errorlevel 1 (
-            echo GPU torch install failed. Falling back to CPU version...
-            pip install -q -r requirements-cpu.txt
-        )
-    )
-) else (
-    :: CPU-only machine
-    if "%TORCH_CUDA%"=="" (
-        echo No NVIDIA GPU detected. Installing CPU PyTorch...
-        pip install -q -r requirements-cpu.txt
-    ) else (
-        echo PyTorch already installed.
-    )
+:: =============================================
+::  Determine target device
+:: =============================================
+if "%FORCE_DEVICE%"=="cpu" (
+    set DEVICE=cpu
+    echo Forced device: CPU
+    goto :install_deps
+)
+if "%FORCE_DEVICE%"=="gpu" (
+    set DEVICE=cuda
+    echo Forced device: GPU
+    goto :install_deps
 )
 
-:: Step 5: Final device detection with installed torch
+:: Auto-detect: check nvidia-smi (hardware level, no torch needed)
+set DEVICE=cpu
+nvidia-smi >nul 2>&1
+if not errorlevel 1 (
+    set DEVICE=cuda
+    echo NVIDIA GPU detected.
+) else (
+    echo No NVIDIA GPU detected.
+)
+
+:install_deps
+:: =============================================
+::  Install dependencies
+:: =============================================
+
+:: Check if vendor/ exists (portable mode)
+if exist "vendor\common" (
+    echo Installing from local vendor packages ^(portable mode^)...
+    goto :portable_install
+) else (
+    echo Installing from internet...
+    goto :online_install
+)
+
+:: ----- PORTABLE INSTALL (from vendor/) -----
+:portable_install
+
+:: Common deps (shared)
+pip install -q --no-index --find-links vendor\common -r requirements.txt 2>nul
+if errorlevel 1 (
+    echo Some common packages failed from vendor, trying with deps...
+    pip install -q --no-index --find-links vendor\common --find-links vendor\cpu --find-links vendor\gpu -r requirements.txt 2>nul
+)
+
+:: Device-specific torch
+if "%DEVICE%"=="cuda" (
+    echo Installing GPU PyTorch from vendor\gpu...
+    pip install -q --no-index --find-links vendor\gpu --find-links vendor\common torch==2.6.0 --force-reinstall 2>nul
+    if errorlevel 1 (
+        echo GPU torch install failed from vendor. Falling back to CPU...
+        set DEVICE=cpu
+        pip install -q --no-index --find-links vendor\cpu --find-links vendor\common torch --force-reinstall 2>nul
+    )
+    :: flash-attn (optional)
+    pip install -q --no-index --find-links vendor\gpu flash-attn 2>nul
+    if errorlevel 1 (
+        echo flash-attn not available in vendor ^(OK^). Using eager attention.
+    )
+) else (
+    echo Installing CPU PyTorch from vendor\cpu...
+    pip install -q --no-index --find-links vendor\cpu --find-links vendor\common torch --force-reinstall 2>nul
+)
+
+goto :post_install
+
+:: ----- ONLINE INSTALL (pip from internet) -----
+:online_install
+
+:: Core deps
+pip install -q -r requirements.txt
+
+:: Torch
+if "%DEVICE%"=="cuda" (
+    echo Installing GPU PyTorch...
+    pip install -q torch==2.6.0 --force-reinstall 2>nul
+    if errorlevel 1 (
+        echo GPU torch failed. Falling back to CPU...
+        set DEVICE=cpu
+        pip install -q -r requirements-cpu.txt
+    )
+    :: flash-attn
+    pip install -q flash-attn==2.7.3 --no-build-isolation 2>nul
+    if errorlevel 1 (
+        echo flash-attn install failed ^(OK^). Using eager attention.
+    )
+) else (
+    echo Installing CPU PyTorch...
+    pip install -q -r requirements-cpu.txt
+)
+
+goto :post_install
+
+:: =============================================
+::  Post-install: verify and launch
+:: =============================================
+:post_install
+
+:: Verify final device
 python -c "import torch; print('cuda' if torch.cuda.is_available() else 'cpu')" > .device_check 2>nul
 set /p DEVICE=<.device_check
 del .device_check 2>nul
 if "%DEVICE%"=="" set DEVICE=cpu
 
-echo Detected device: %DEVICE%
+echo Final device: %DEVICE%
 
-:: Step 6: If GPU, try flash-attn
-if "%DEVICE%"=="cuda" (
-    python -c "import flash_attn" 2>nul
-    if errorlevel 1 (
-        echo Installing flash-attention for GPU acceleration...
-        pip install -q flash-attn==2.7.3 --no-build-isolation 2>nul
-        if errorlevel 1 (
-            echo flash-attn install failed ^(this is OK^). Using eager attention on GPU.
-        ) else (
-            echo flash-attn installed successfully.
-        )
-    ) else (
-        echo flash-attn already installed.
-    )
-) else (
-    echo Running in CPU mode.
-    echo Tip: A CUDA-capable NVIDIA GPU with 6+GB VRAM will significantly speed up processing.
-)
-
-:: Step 7: Build frontend if needed
+:: Build frontend if needed
 if not exist "frontend\dist" (
     where npm >nul 2>&1
     if errorlevel 1 (
@@ -125,6 +174,6 @@ echo  Press Ctrl+C to stop
 echo ============================================
 echo.
 
-python -m cli.main serve
+python -m cli.main --device %DEVICE% serve
 
 pause

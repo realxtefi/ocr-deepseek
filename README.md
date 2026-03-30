@@ -28,6 +28,7 @@ Works on **Windows, Linux, and macOS** with **GPU acceleration (CUDA)** or **CPU
 - [Installation](#installation)
   - [One-Click (Recommended)](#one-click-recommended)
   - [Manual Installation](#manual-installation)
+- [Portable Build](#portable-build)
 - [Usage](#usage)
   - [Web UI](#web-ui)
   - [CLI](#cli)
@@ -143,6 +144,81 @@ python -m cli.main setup
 
 # 6. Start the server
 python -m cli.main serve
+```
+
+---
+
+## Portable Build
+
+Create a fully self-contained package that runs on **completely offline machines** — bundles both CPU and GPU PyTorch builds, all dependencies, and optionally the model itself. Just unzip and run.
+
+### Build the Portable Package
+
+On an internet-connected machine:
+
+```bash
+# Full portable package (wheels + model + frontend) — ~9GB
+python scripts/build_portable.py
+
+# Without model (lighter, download model on target later) — ~3GB
+python scripts/build_portable.py --no-model
+
+# Just download wheels, no zip (to commit vendor/ to repo)
+python scripts/build_portable.py --no-zip --no-model
+
+# Custom output name
+python scripts/build_portable.py --output my_ocr_package.zip
+```
+
+This creates:
+```
+vendor/
+  common/   - All shared dependencies (fastapi, transformers, etc.)
+  cpu/      - PyTorch CPU-only wheels (~300MB)
+  gpu/      - PyTorch CUDA wheels + flash-attn (~2GB)
+```
+
+### Use on Offline Machine
+
+```bash
+# Unzip
+unzip deepseek-ocr-portable.zip -d ocr-deepseek
+cd ocr-deepseek
+
+# Auto-detect GPU/CPU
+start_windows.bat           # Windows
+./start_linux.sh            # Linux
+
+# Force specific device
+start_windows.bat --gpu     # Force GPU (CUDA)
+start_windows.bat --cpu     # Force CPU
+./start_linux.sh --gpu
+./start_linux.sh --cpu
+```
+
+The launcher detects `vendor/` and installs from local wheels instead of the internet. It automatically selects the correct torch build (CPU or GPU) based on the `--cpu`/`--gpu` flag or `nvidia-smi` auto-detection.
+
+### Portability Matrix
+
+| Scenario | What Happens |
+|----------|-------------|
+| Built on CPU, run on CPU | Installs CPU torch from `vendor/cpu/` |
+| Built on CPU, run on GPU | Detects `nvidia-smi`, installs GPU torch from `vendor/gpu/` |
+| Built on GPU, run on CPU | Installs CPU torch from `vendor/cpu/` |
+| `--gpu` flag on CPU machine | Installs GPU torch, falls back to CPU if CUDA unavailable |
+| `--cpu` flag on GPU machine | Forces CPU torch (useful for testing/debugging) |
+
+### Download Wheels Only
+
+If you just want to cache wheels without building a full zip:
+
+```bash
+# Download for current platform
+python scripts/download_wheels.py
+
+# Download for a specific platform
+python scripts/download_wheels.py --platform win_amd64 --python 3.12
+python scripts/download_wheels.py --platform manylinux2014_x86_64 --python 3.12
 ```
 
 ---

@@ -29,9 +29,17 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 
+# Vendor wheels (large, only include if building portable)
+# Uncomment below to exclude vendor/ from git:
+# vendor/
+
+# Portable zip
+*.zip
+
 # Temp
 *.tmp
 .device_check
+.torch_check
 
 # Env
 .env
