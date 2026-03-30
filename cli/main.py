@@ -160,7 +160,7 @@ def info():
         if torch.cuda.is_available():
             props = torch.cuda.get_device_properties(0)
             click.echo(f"GPU: {props.name}")
-            click.echo(f"VRAM: {props.total_mem / (1024**3):.1f} GB")
+            click.echo(f"VRAM: {props.total_memory / (1024**3):.1f} GB")
     except ImportError:
         click.echo("PyTorch: not installed")
 
