@@ -84,6 +84,37 @@ class ModelManager:
         logger.info(f"Model downloaded to {model_path}")
         return model_path
 
+    @staticmethod
+    def _patch_torch_for_cpu(torch_module):
+        """Monkey-patch torch so model code that hardcodes 'cuda' works on CPU.
+
+        DeepSeek-OCR-2's modeling_deepseekocr2.py has:
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+        This crashes on CPU-only torch. We replace torch.autocast with a
+        version that redirects "cuda" to "cpu" and downgrades bfloat16 to
+        float32 (since CPU bfloat16 support varies).
+        """
+        _original_autocast = torch_module.autocast
+
+        class _CPUAutocast(_original_autocast):
+            def __init__(self, device_type, *args, **kwargs):
+                if device_type == "cuda":
+                    device_type = "cpu"
+                    # CPU autocast only supports bfloat16 on some hardware,
+                    # fall back to float32 to be safe
+                    if "dtype" in kwargs and kwargs["dtype"] == torch_module.bfloat16:
+                        kwargs["dtype"] = torch_module.float32
+                super().__init__(device_type, *args, **kwargs)
+
+        torch_module.autocast = _CPUAutocast
+
+        # Also patch torch.Tensor.cuda to be a no-op (return self)
+        if not hasattr(torch_module.Tensor, '_original_cuda'):
+            torch_module.Tensor._original_cuda = torch_module.Tensor.cuda
+            torch_module.Tensor.cuda = lambda self, *args, **kwargs: self
+
+        logger.info("Patched torch.autocast and Tensor.cuda for CPU compatibility")
+
     def load(self, model_id: str, cache_dir: str, device: str = "auto") -> None:
         import torch
         from transformers import AutoModel, AutoTokenizer
@@ -105,11 +136,13 @@ class ModelManager:
             logger.info("Model not found locally, downloading...")
             self.download(model_id, cache_dir)
 
-        # When running on CPU, hide CUDA entirely so the model's internal
-        # code (trust_remote_code) can't call .cuda() on tensors.
+        # When running on CPU, patch torch to prevent the model's internal
+        # code from using CUDA. DeepSeek-OCR-2's modeling code has hardcoded
+        # torch.autocast("cuda", ...) calls that crash on CPU-only torch.
         if self.device == "cpu":
             os.environ["CUDA_VISIBLE_DEVICES"] = ""
-            logger.info("Set CUDA_VISIBLE_DEVICES='' to force CPU mode")
+            self._patch_torch_for_cpu(torch)
+            logger.info("Patched torch for CPU-only mode")
 
         logger.info(f"Loading model from {model_path} on {self.device}")
 
