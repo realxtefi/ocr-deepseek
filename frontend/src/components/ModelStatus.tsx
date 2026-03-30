@@ -17,6 +17,7 @@ export default function ModelStatus() {
   const [status, setStatus] = useState<Status | null>(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [selectedDevice, setSelectedDevice] = useState('auto')
 
   const fetchStatus = async () => {
     try {
@@ -39,7 +40,6 @@ export default function ModelStatus() {
     try {
       await downloadModel()
       setMessage('Download started. This may take a while (~6GB).')
-      // Poll until downloaded
       const poll = setInterval(async () => {
         const s = await getStatus()
         setStatus(s)
@@ -55,13 +55,14 @@ export default function ModelStatus() {
     }
   }
 
-  const handleLoad = async () => {
+  const handleLoad = async (device?: string) => {
+    const deviceToUse = device || selectedDevice
     setLoading(true)
-    setMessage('Loading model into memory...')
+    setMessage(`Loading model on ${deviceToUse === 'auto' ? 'best available device' : deviceToUse.toUpperCase()}...`)
     try {
-      const result = await loadModel('auto')
+      const result = await loadModel(deviceToUse)
       if (result.success) {
-        setMessage(`Model loaded on ${result.device}`)
+        setMessage(`Model loaded on ${result.device.toUpperCase()}`)
       } else {
         setMessage(`Load failed: ${result.message}`)
       }
@@ -70,6 +71,26 @@ export default function ModelStatus() {
       setMessage('Load failed')
     }
     setLoading(false)
+  }
+
+  const handleUnload = async () => {
+    setLoading(true)
+    setMessage('Unloading model...')
+    try {
+      await fetch('/api/v1/model/unload', { method: 'POST' })
+      setMessage('Model unloaded')
+      await fetchStatus()
+    } catch {
+      setMessage('Unload failed')
+    }
+    setLoading(false)
+  }
+
+  const handleSwitchDevice = async (device: string) => {
+    setSelectedDevice(device)
+    if (status?.model_loaded) {
+      await handleLoad(device)
+    }
   }
 
   if (!status) {
@@ -85,17 +106,19 @@ export default function ModelStatus() {
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h2>Model Status</h2>
-        {status.model_loaded && (
-          <span className={`status-badge ${status.device === 'cuda' ? 'gpu' : 'cpu'}`}>
-            {status.device === 'cuda'
-              ? `GPU: ${status.gpu_name || 'CUDA'}`
-              : 'CPU Mode'}
-          </span>
-        )}
-        {!status.model_loaded && !loading && (
-          <span className="status-badge error">Not Loaded</span>
-        )}
-        {loading && <span className="status-badge loading">Working...</span>}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {status.model_loaded && (
+            <span className={`status-badge ${status.device === 'cuda' ? 'gpu' : 'cpu'}`}>
+              {status.device === 'cuda'
+                ? `GPU: ${status.gpu_name || 'CUDA'}`
+                : 'CPU Mode'}
+            </span>
+          )}
+          {!status.model_loaded && !loading && (
+            <span className="status-badge error">Not Loaded</span>
+          )}
+          {loading && <span className="status-badge loading">Working...</span>}
+        </div>
       </div>
 
       {status.cuda_available && status.vram_total_mb && (
@@ -104,17 +127,48 @@ export default function ModelStatus() {
         </p>
       )}
 
-      {!status.model_downloaded && (
-        <button className="btn btn-primary" onClick={handleDownload} disabled={loading}>
-          Download Model (~6GB)
-        </button>
+      {!status.cuda_available && (
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-dim)', marginBottom: 8 }}>
+          No CUDA GPU detected. Running in CPU-only mode (slower but fully functional).
+        </p>
       )}
 
-      {status.model_downloaded && !status.model_loaded && (
-        <button className="btn btn-primary" onClick={handleLoad} disabled={loading}>
-          Load Model
-        </button>
+      {/* Device selector */}
+      {status.model_downloaded && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+          <label style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>Device:</label>
+          <select
+            value={selectedDevice}
+            onChange={e => handleSwitchDevice(e.target.value)}
+            disabled={loading}
+            style={{ width: 'auto' }}
+          >
+            <option value="auto">Auto-detect</option>
+            {status.cuda_available && <option value="cuda">GPU (CUDA)</option>}
+            <option value="cpu">CPU</option>
+          </select>
+        </div>
       )}
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        {!status.model_downloaded && (
+          <button className="btn btn-primary" onClick={handleDownload} disabled={loading}>
+            Download Model (~6GB)
+          </button>
+        )}
+
+        {status.model_downloaded && !status.model_loaded && (
+          <button className="btn btn-primary" onClick={() => handleLoad()} disabled={loading}>
+            Load Model
+          </button>
+        )}
+
+        {status.model_loaded && (
+          <button className="btn btn-secondary" onClick={handleUnload} disabled={loading} style={{ fontSize: '0.85rem' }}>
+            Unload
+          </button>
+        )}
+      </div>
 
       {message && (
         <p style={{ fontSize: '0.85rem', color: 'var(--text-dim)', marginTop: 8 }}>{message}</p>

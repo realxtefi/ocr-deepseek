@@ -70,7 +70,8 @@ async def load_model(request: ModelLoadRequest = ModelLoadRequest()):
     config = get_config()
     manager = ModelManager()
 
-    if manager.is_loaded():
+    # If already loaded on same device, skip reload
+    if manager.is_loaded() and request.device == "auto":
         return ModelLoadResponse(
             success=True, device=manager.device or "unknown",
             message="Model already loaded",
@@ -84,6 +85,15 @@ async def load_model(request: ModelLoadRequest = ModelLoadRequest()):
         return ModelLoadResponse(success=True, device=manager.device or "unknown")
     except Exception as e:
         return ModelLoadResponse(success=False, device="none", message=str(e))
+
+
+@router.post("/model/unload")
+async def unload_model():
+    manager = ModelManager()
+    if not manager.is_loaded():
+        return {"message": "Model not loaded", "success": True}
+    manager.unload()
+    return {"message": "Model unloaded", "success": True}
 
 
 @router.post("/process/file")

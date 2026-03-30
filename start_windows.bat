@@ -29,37 +29,55 @@ if not exist "venv" (
 :: Activate venv
 call venv\Scripts\activate.bat
 
-:: Check for GPU
+:: Step 1: Install core dependencies first (includes torch-less packages)
+echo Installing core dependencies...
+pip install -q -r requirements.txt
+
+:: Step 2: Check if torch is already installed, if not install CPU version first
+python -c "import torch" 2>nul
+if errorlevel 1 (
+    echo Installing PyTorch...
+    echo Trying GPU version first...
+    pip install -q torch==2.6.0 2>nul
+    if errorlevel 1 (
+        echo GPU torch failed. Installing CPU version...
+        pip install -q -r requirements-cpu.txt
+    )
+)
+
+:: Step 3: Now detect GPU with torch installed
 echo Detecting hardware...
-python -c "import torch; print('cuda' if torch.cuda.is_available() else 'cpu')" 2>nul > .device_check
+python -c "import torch; print('cuda' if torch.cuda.is_available() else 'cpu')" > .device_check 2>nul
 set /p DEVICE=<.device_check
 del .device_check 2>nul
 
+if "%DEVICE%"=="" set DEVICE=cpu
+
+echo Detected device: %DEVICE%
+
+:: Step 4: If GPU available, try to install flash-attn for better performance
 if "%DEVICE%"=="cuda" (
-    echo GPU detected! Installing GPU dependencies...
-    pip install -q -r requirements-gpu.txt 2>nul
+    echo GPU detected! Installing flash-attention for acceleration...
+    pip install -q flash-attn==2.7.3 --no-build-isolation 2>nul
     if errorlevel 1 (
-        echo GPU packages failed to install. Falling back to CPU...
-        pip install -q -r requirements-cpu.txt
+        echo flash-attn install failed ^(this is OK^). Using eager attention on GPU.
+    ) else (
+        echo flash-attn installed successfully.
     )
 ) else (
-    echo No GPU detected. Installing CPU dependencies...
-    pip install -q -r requirements-cpu.txt
+    echo Running in CPU mode.
+    echo Tip: A CUDA-capable NVIDIA GPU with 6+GB VRAM will significantly speed up processing.
 )
 
-:: Install core dependencies
-echo Installing dependencies...
-pip install -q -r requirements.txt
-
-:: Check if frontend is built
+:: Step 5: Build frontend if needed
 if not exist "frontend\dist" (
-    echo Building frontend...
     where npm >nul 2>&1
     if errorlevel 1 (
         echo WARNING: Node.js not found. Web UI will not be available.
         echo Install Node.js from https://nodejs.org for the web interface.
         echo You can still use the CLI.
     ) else (
+        echo Building frontend...
         cd frontend
         call npm install
         call npm run build
@@ -69,6 +87,7 @@ if not exist "frontend\dist" (
 
 echo.
 echo ============================================
+echo  Device: %DEVICE%
 echo  Starting server...
 echo  Web UI: http://127.0.0.1:8000
 echo  Press Ctrl+C to stop

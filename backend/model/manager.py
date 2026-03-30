@@ -89,6 +89,16 @@ class ModelManager:
         import torch
         from transformers import AutoModel, AutoTokenizer
 
+        # If already loaded on a different device, unload first
+        if self.is_loaded():
+            requested = self.detect_device(device)
+            if requested != self.device:
+                logger.info(f"Switching device from {self.device} to {requested}")
+                self.unload()
+            else:
+                logger.info(f"Model already loaded on {self.device}")
+                return
+
         self.device = self.detect_device(device)
         model_path = self.get_model_path(cache_dir)
 
@@ -103,6 +113,7 @@ class ModelManager:
         )
 
         if self.device == "cuda":
+            # Try flash_attention_2 -> eager on CUDA -> fall back to CPU
             try:
                 self.model = AutoModel.from_pretrained(
                     str(model_path),
@@ -111,15 +122,29 @@ class ModelManager:
                     use_safetensors=True,
                 )
                 self.model = self.model.eval().cuda().to(torch.bfloat16)
+                logger.info("Loaded with flash_attention_2 on CUDA (bf16)")
             except (ImportError, RuntimeError) as e:
-                logger.warning(f"flash_attention_2 unavailable ({e}), using eager attention on CUDA")
-                self.model = AutoModel.from_pretrained(
-                    str(model_path),
-                    _attn_implementation="eager",
-                    trust_remote_code=True,
-                    use_safetensors=True,
-                )
-                self.model = self.model.eval().cuda().to(torch.bfloat16)
+                logger.warning(f"flash_attention_2 unavailable ({e}), trying eager attention on CUDA")
+                try:
+                    self.model = AutoModel.from_pretrained(
+                        str(model_path),
+                        _attn_implementation="eager",
+                        trust_remote_code=True,
+                        use_safetensors=True,
+                    )
+                    self.model = self.model.eval().cuda().to(torch.bfloat16)
+                    logger.info("Loaded with eager attention on CUDA (bf16)")
+                except RuntimeError as cuda_err:
+                    logger.warning(f"CUDA loading failed ({cuda_err}), falling back to CPU")
+                    self.device = "cpu"
+                    self.model = AutoModel.from_pretrained(
+                        str(model_path),
+                        _attn_implementation="eager",
+                        trust_remote_code=True,
+                        use_safetensors=True,
+                    )
+                    self.model = self.model.eval().float()
+                    logger.info("Fell back to CPU (float32)")
         else:
             self.model = AutoModel.from_pretrained(
                 str(model_path),
@@ -128,8 +153,9 @@ class ModelManager:
                 use_safetensors=True,
             )
             self.model = self.model.eval().float()
+            logger.info("Loaded with eager attention on CPU (float32)")
 
-        logger.info(f"Model loaded on {self.device}")
+        logger.info(f"Model ready on {self.device}")
 
     def unload(self) -> None:
         if self.model is not None:
