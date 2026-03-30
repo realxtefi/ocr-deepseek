@@ -100,10 +100,8 @@ class ModelManager:
             def __init__(self, device_type, *args, **kwargs):
                 if device_type == "cuda":
                     device_type = "cpu"
-                    # CPU autocast only supports bfloat16 on some hardware,
-                    # fall back to float32 to be safe
-                    if "dtype" in kwargs and kwargs["dtype"] == torch_module.bfloat16:
-                        kwargs["dtype"] = torch_module.float32
+                    # CPU autocast supports bfloat16 — keep it for compatibility
+                    # with model weights that are stored in bfloat16
                 super().__init__(device_type, *args, **kwargs)
 
         torch_module.autocast = _CPUAutocast
@@ -185,15 +183,18 @@ class ModelManager:
                     self.model = self.model.eval().float()
                     logger.info("Fell back to CPU (float32)")
         else:
+            # Load in bfloat16 on CPU — matches the model's native weight format
+            # and its hardcoded autocast("cuda", dtype=bfloat16). Our patch
+            # redirects to autocast("cpu", dtype=bfloat16) which is supported.
             self.model = AutoModel.from_pretrained(
                 str(model_path),
                 _attn_implementation="eager",
                 trust_remote_code=True,
                 use_safetensors=True,
-                torch_dtype=torch.float32,
+                torch_dtype=torch.bfloat16,
             )
-            self.model = self.model.eval().float()
-            logger.info("Loaded with eager attention on CPU (float32)")
+            self.model = self.model.eval()
+            logger.info("Loaded with eager attention on CPU (bfloat16)")
 
         logger.info(f"Model ready on {self.device}")
 
