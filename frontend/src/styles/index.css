@@ -310,7 +310,7 @@ input:focus {
   border-radius: 8px;
   padding: 16px;
   overflow: auto;
-  max-height: 500px;
+  max-height: calc(100vh - 200px);
   font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 0.85rem;
   white-space: pre-wrap;
@@ -321,6 +321,52 @@ input:focus {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+}
+
+/* Compact two-column layout for process page */
+.process-layout {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.process-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.process-controls .card {
+  margin-bottom: 12px;
+}
+
+.process-controls .card.compact {
+  padding: 14px;
+}
+
+.process-controls .card.compact h2 {
+  font-size: 0.95rem;
+  margin-bottom: 8px;
+}
+
+.process-results {
+  position: sticky;
+  top: 16px;
+  min-height: 400px;
+}
+
+.process-results .card {
+  margin-bottom: 0;
+}
+
+@media (max-width: 900px) {
+  .process-layout {
+    grid-template-columns: 1fr;
+  }
+  .process-results {
+    position: static;
+  }
 }
 
 @media (max-width: 768px) {

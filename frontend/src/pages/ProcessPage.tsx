@@ -109,45 +109,57 @@ export default function ProcessPage() {
       }
     }
 
-    // Start polling
     if (!pollRef.current) {
       pollRef.current = setInterval(pollJobs, 1500)
     }
   }
 
   return (
-    <div>
-      <ModelStatus />
+    <div className="process-layout">
+      {/* Left column: controls */}
+      <div className="process-controls">
+        <ModelStatus />
 
-      <div className="card">
-        <h2>Upload Documents</h2>
-        <FileUpload files={files} onFilesChange={setFiles} />
-      </div>
-
-      <div className="card">
-        <h2>Processing Options</h2>
-        <SettingsPanel settings={settings} onChange={setSettings} />
-        <div style={{ marginTop: 16 }}>
-          <button
-            className="btn btn-primary"
-            onClick={handleProcess}
-            disabled={files.length === 0 || !modelReady || processing}
-          >
-            {processing ? 'Processing...' : `Process ${files.length} file(s)`}
-          </button>
-          {!modelReady && (
-            <span style={{ marginLeft: 12, fontSize: '0.85rem', color: 'var(--warning)' }}>
-              Load the model first
-            </span>
-          )}
+        <div className="card compact">
+          <h2>Upload</h2>
+          <FileUpload files={files} onFilesChange={setFiles} />
         </div>
+
+        <div className="card compact">
+          <h2>Options</h2>
+          <SettingsPanel settings={settings} onChange={setSettings} />
+          <div style={{ marginTop: 12 }}>
+            <button
+              className="btn btn-primary"
+              onClick={handleProcess}
+              disabled={files.length === 0 || !modelReady || processing}
+              style={{ width: '100%' }}
+            >
+              {processing ? 'Processing...' : `Process ${files.length} file(s)`}
+            </button>
+            {!modelReady && (
+              <p style={{ fontSize: '0.8rem', color: 'var(--warning)', marginTop: 6, textAlign: 'center' }}>
+                Load the model first
+              </p>
+            )}
+          </div>
+        </div>
+
+        <JobQueue jobs={jobs} onSelect={setSelectedJobId} selectedJobId={selectedJobId} />
       </div>
 
-      <JobQueue jobs={jobs} onSelect={setSelectedJobId} selectedJobId={selectedJobId} />
-
-      {selectedJobId && (
-        <ResultViewer jobId={selectedJobId} />
-      )}
+      {/* Right column: results */}
+      <div className="process-results">
+        {selectedJobId ? (
+          <ResultViewer jobId={selectedJobId} />
+        ) : (
+          <div className="card" style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 300 }}>
+            <p style={{ color: 'var(--text-dim)', textAlign: 'center' }}>
+              Upload a document and click Process<br />to see results here
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

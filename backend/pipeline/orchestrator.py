@@ -175,6 +175,14 @@ class Orchestrator:
 
             output_path.write_text(content, encoding="utf-8")
 
+            # Copy rendered page images to output/images/
+            # Model outputs ![](images/0.jpg) — we save the actual page PNGs
+            images_dir = output_dir / "images"
+            images_dir.mkdir(exist_ok=True)
+            for i, img_path in enumerate(images):
+                dest = images_dir / f"{i}.jpg"
+                shutil.copy2(str(img_path), str(dest))
+
             return FileResult(
                 file_path=str(file_path),
                 output_path=str(output_path),
