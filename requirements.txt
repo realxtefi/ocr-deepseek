@@ -6,6 +6,7 @@ click>=8.1.0
 huggingface-hub>=0.20.0
 transformers==4.46.3
 tokenizers==0.20.3
+torchvision
 einops
 addict
 easydict

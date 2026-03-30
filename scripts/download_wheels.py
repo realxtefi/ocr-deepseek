@@ -78,12 +78,13 @@ def download_cpu_wheels(plat: str, python_version: str):
     run([
         sys.executable, "-m", "pip", "download",
         f"torch=={TORCH_VERSION}+cpu",
+        "torchvision==0.21.0+cpu",
         "--dest", str(dest),
         "--platform", plat,
         "--python-version", python_version,
         "--only-binary=:all:",
         "--index-url", "https://download.pytorch.org/whl/cpu",
-    ], f"Downloading PyTorch CPU → vendor/cpu/")
+    ], f"Downloading PyTorch + torchvision CPU → vendor/cpu/")
 
 
 def download_gpu_wheels(plat: str, python_version: str):
@@ -95,11 +96,12 @@ def download_gpu_wheels(plat: str, python_version: str):
     run([
         sys.executable, "-m", "pip", "download",
         f"torch=={TORCH_VERSION}",
+        "torchvision==0.21.0",
         "--dest", str(dest),
         "--platform", plat,
         "--python-version", python_version,
         "--only-binary=:all:",
-    ], f"Downloading PyTorch CUDA → vendor/gpu/")
+    ], f"Downloading PyTorch + torchvision CUDA → vendor/gpu/")
 
     # flash-attn (pre-built wheels only — skip if unavailable for this platform)
     ret = run([
@@ -132,16 +134,18 @@ def download_for_current_platform():
     run([
         sys.executable, "-m", "pip", "download",
         f"torch=={TORCH_VERSION}+cpu",
+        "torchvision==0.21.0+cpu",
         "--dest", str(VENDOR / "cpu"),
         "--index-url", "https://download.pytorch.org/whl/cpu",
-    ], "Downloading PyTorch CPU")
+    ], "Downloading PyTorch + torchvision CPU")
 
     # GPU torch
     run([
         sys.executable, "-m", "pip", "download",
         f"torch=={TORCH_VERSION}",
+        "torchvision==0.21.0",
         "--dest", str(VENDOR / "gpu"),
-    ], "Downloading PyTorch CUDA")
+    ], "Downloading PyTorch + torchvision CUDA")
 
     # flash-attn (optional — pre-built wheels only, skip if unavailable)
     ret = run([
