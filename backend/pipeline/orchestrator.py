@@ -142,7 +142,8 @@ class Orchestrator:
                 if job and job.cancelled:
                     return FileResult(file_path=str(file_path), error="Cancelled")
                 text = run_ocr(img_path, mode=ocr_mode)
-                page_texts.append(text)
+                # model.infer() can return None for some pages — treat as empty
+                page_texts.append(text if text is not None else "")
 
             raw_text = "\n\n---\n\n".join(page_texts)
 
