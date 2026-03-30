@@ -2,7 +2,7 @@
 
 Offline-capable document processing application powered by [DeepSeek-OCR-2](https://huggingface.co/deepseek-ai/DeepSeek-OCR-2), a 3B parameter vision-language model specialized for OCR and document understanding. Designed for processing scientific articles, magazines, and research papers with structured metadata extraction.
 
-Works on **Windows, Linux, and macOS** with **GPU acceleration (CUDA)** or **CPU-only** fallback. No internet connection required after initial setup.
+Works on **Windows, Linux, and macOS** with **GPU acceleration (CUDA)** or **CPU-only** fallback. Ships with a **portable build system** that bundles both CPU and GPU PyTorch — no internet connection required.
 
 ---
 
@@ -17,7 +17,9 @@ Works on **Windows, Linux, and macOS** with **GPU acceleration (CUDA)** or **CPU
 - **Web UI** — clean React-based interface for upload, processing, and result viewing
 - **CLI** — full-featured command-line interface for scripting and automation
 - **GPU/CPU auto-detection** — uses CUDA + flash_attention_2 when available, falls back to eager attention + float32 on CPU
-- **One-click launchers** — `start_windows.bat` / `start_linux.sh` handle everything
+- **Runtime device switching** — switch between GPU and CPU without restarting the app
+- **Portable build** — bundle both CPU and GPU torch builds; same package runs on any machine
+- **One-click launchers** — `start_windows.bat` / `start_linux.sh` with `--cpu` / `--gpu` / `--auto` flags
 
 ---
 
@@ -36,7 +38,10 @@ Works on **Windows, Linux, and macOS** with **GPU acceleration (CUDA)** or **CPU
 - [Architecture](#architecture)
 - [API Reference](#api-reference)
 - [Output Formats](#output-formats)
+- [OCR Modes](#ocr-modes)
+- [Scientific Metadata Extraction](#scientific-metadata-extraction)
 - [DOCX Support](#docx-support)
+- [Performance](#performance)
 - [Troubleshooting](#troubleshooting)
 - [License](#license)
 
@@ -53,14 +58,21 @@ cd ocr-deepseek
 start_windows.bat
 
 # Linux/macOS:
+chmod +x start_linux.sh
 ./start_linux.sh
+
+# Force a specific device:
+start_windows.bat --gpu     # Force GPU
+start_windows.bat --cpu     # Force CPU
+./start_linux.sh --gpu
+./start_linux.sh --cpu
 ```
 
 The launcher will:
 1. Create a Python virtual environment
-2. Detect your GPU and install the correct PyTorch version
-3. Install all dependencies
-4. Build the web frontend
+2. Detect GPU via `nvidia-smi` and install the matching PyTorch build
+3. Install all dependencies (from `vendor/` offline or from pip)
+4. Build the web frontend (if Node.js is available)
 5. Start the server at `http://127.0.0.1:8000`
 
 On first use, click **"Download Model"** in the web UI (or run `python -m cli.main setup`) to download the ~6GB model.
@@ -104,14 +116,20 @@ On first use, click **"Download Model"** in the web UI (or run `python -m cli.ma
 
 **Windows:**
 ```
-start_windows.bat
+start_windows.bat              # Auto-detect GPU/CPU
+start_windows.bat --gpu        # Force GPU mode
+start_windows.bat --cpu        # Force CPU mode
 ```
 
 **Linux / macOS:**
 ```bash
 chmod +x start_linux.sh
-./start_linux.sh
+./start_linux.sh               # Auto-detect GPU/CPU
+./start_linux.sh --gpu         # Force GPU mode
+./start_linux.sh --cpu         # Force CPU mode
 ```
+
+The launcher uses `nvidia-smi` for hardware detection. If you move a venv that was set up on a CPU machine to a GPU machine (or vice versa), the launcher will automatically reinstall the correct PyTorch version.
 
 ### Manual Installation
 
@@ -128,7 +146,7 @@ source venv/bin/activate
 # 2. Install PyTorch
 # GPU (CUDA):
 pip install torch==2.6.0
-pip install flash-attn==2.7.3 --no-build-isolation
+pip install flash-attn==2.7.3 --no-build-isolation    # optional, for faster inference
 
 # CPU only:
 pip install torch==2.6.0+cpu --index-url https://download.pytorch.org/whl/cpu
@@ -150,9 +168,16 @@ python -m cli.main serve
 
 ## Portable Build
 
-Create a fully self-contained package that runs on **completely offline machines** — bundles both CPU and GPU PyTorch builds, all dependencies, and optionally the model itself. Just unzip and run.
+Create a fully self-contained package that runs on **completely offline machines**. Bundles both CPU and GPU PyTorch wheels so the same package works on any hardware. Just unzip and run.
 
-### Build the Portable Package
+### Why Portable?
+
+- Air-gapped / secured networks with no internet access
+- Deploying to multiple machines with different hardware (some GPU, some CPU)
+- Reproducible environments without depending on pip/PyPI availability
+- Transfer via USB drive, shared folder, or internal file server
+
+### Build the Package
 
 On an internet-connected machine:
 
@@ -163,60 +188,61 @@ python scripts/build_portable.py
 # Without model (lighter, download model on target later) — ~3GB
 python scripts/build_portable.py --no-model
 
-# Just download wheels, no zip (to commit vendor/ to repo)
+# Just download wheels into vendor/, don't create zip
 python scripts/build_portable.py --no-zip --no-model
 
-# Custom output name
+# Custom output filename
 python scripts/build_portable.py --output my_ocr_package.zip
 ```
 
 This creates:
 ```
 vendor/
-  common/   - All shared dependencies (fastapi, transformers, etc.)
+  common/   - All shared dependencies (fastapi, transformers, Pillow, etc.)
   cpu/      - PyTorch CPU-only wheels (~300MB)
   gpu/      - PyTorch CUDA wheels + flash-attn (~2GB)
 ```
 
-### Use on Offline Machine
+### Deploy to Offline Machine
 
 ```bash
-# Unzip
+# 1. Transfer and unzip
 unzip deepseek-ocr-portable.zip -d ocr-deepseek
 cd ocr-deepseek
 
-# Auto-detect GPU/CPU
-start_windows.bat           # Windows
-./start_linux.sh            # Linux
-
-# Force specific device
-start_windows.bat --gpu     # Force GPU (CUDA)
+# 2. Run (launcher auto-detects vendor/ and installs from local wheels)
+start_windows.bat           # Auto-detect GPU/CPU
+start_windows.bat --gpu     # Force GPU
 start_windows.bat --cpu     # Force CPU
+
+# Linux:
+./start_linux.sh
 ./start_linux.sh --gpu
 ./start_linux.sh --cpu
 ```
 
-The launcher detects `vendor/` and installs from local wheels instead of the internet. It automatically selects the correct torch build (CPU or GPU) based on the `--cpu`/`--gpu` flag or `nvidia-smi` auto-detection.
+The launcher detects the `vendor/` directory and uses `pip install --no-index --find-links vendor/...` — completely offline, no internet needed.
 
 ### Portability Matrix
 
 | Scenario | What Happens |
 |----------|-------------|
-| Built on CPU, run on CPU | Installs CPU torch from `vendor/cpu/` |
-| Built on CPU, run on GPU | Detects `nvidia-smi`, installs GPU torch from `vendor/gpu/` |
-| Built on GPU, run on CPU | Installs CPU torch from `vendor/cpu/` |
-| `--gpu` flag on CPU machine | Installs GPU torch, falls back to CPU if CUDA unavailable |
+| Built on CPU, run on **CPU** | Installs CPU torch from `vendor/cpu/` |
+| Built on CPU, run on **GPU** | Detects `nvidia-smi`, installs GPU torch from `vendor/gpu/` |
+| Built on GPU, run on **CPU** | Installs CPU torch from `vendor/cpu/` |
+| `--gpu` flag on CPU machine | Installs GPU torch, falls back to CPU if CUDA unavailable at runtime |
 | `--cpu` flag on GPU machine | Forces CPU torch (useful for testing/debugging) |
+| Moved venv between machines | Launcher detects mismatch, force-reinstalls correct torch |
 
 ### Download Wheels Only
 
-If you just want to cache wheels without building a full zip:
+If you want to cache wheels without building a full package:
 
 ```bash
 # Download for current platform
 python scripts/download_wheels.py
 
-# Download for a specific platform
+# Download for a specific target platform
 python scripts/download_wheels.py --platform win_amd64 --python 3.12
 python scripts/download_wheels.py --platform manylinux2014_x86_64 --python 3.12
 ```
@@ -231,47 +257,55 @@ Start the server and open `http://127.0.0.1:8000` in your browser:
 
 ```bash
 python -m cli.main serve
+# or with options:
+python -m cli.main serve --port 9000 --host 0.0.0.0
 ```
 
 **Workflow:**
-1. **Model Status** — Download and load the model (top card)
-2. **Upload** — Drag-and-drop files or click to browse
-3. **Configure** — Set output format, OCR mode, page range, worker count
-4. **Process** — Click "Process" and watch the job queue
-5. **Results** — View structured metadata, raw output, copy or download
+1. **Model Status** — Download and load the model (top card). Select device (Auto/GPU/CPU) from the dropdown. Switch devices at runtime without restarting.
+2. **Upload** — Drag-and-drop files or click to browse (PDF, DOCX, images)
+3. **Configure** — Set output format (JSON/Markdown/XML), OCR mode (layout/plain), page range, worker count, scientific extraction toggle
+4. **Process** — Click "Process" and watch the job queue with live progress
+5. **Results** — View structured metadata in a clean card layout, switch to raw output, copy to clipboard, or download
 
 ### CLI
 
 ```bash
-# Show system info (GPU, model status)
+# Show system info (GPU, VRAM, model status, Python version)
 python -m cli.main info
 
-# Download model
+# Download model (~6GB, one-time, resumable)
 python -m cli.main setup
 
 # Process a single PDF (pages 1-5, JSON output)
 python -m cli.main process paper.pdf -f json -p "1-5"
 
-# Process a single image
+# Process a single image to markdown
 python -m cli.main process scan.png -f markdown
 
-# Process a folder recursively with 4 workers
-python -m cli.main process ./papers/ -w 4 -f json -o ./results/
+# Process a folder recursively with 4 workers, output XML
+python -m cli.main process ./papers/ -w 4 -f xml -o ./results/
 
-# Process multiple paths
+# Process multiple paths at once
 python -m cli.main process paper1.pdf paper2.pdf ./more_papers/
 
-# Process without scientific extraction
+# Process without scientific extraction (raw OCR only)
 python -m cli.main process document.pdf --no-scientific
 
 # Plain OCR mode (no layout preservation)
 python -m cli.main process document.pdf -m plain
 
-# Use CPU explicitly
+# Force CPU mode
 python -m cli.main --device cpu process paper.pdf
+
+# Force GPU mode
+python -m cli.main --device cuda process paper.pdf
 
 # Start web server on custom port
 python -m cli.main serve --port 9000 --host 0.0.0.0
+
+# Start without auto-opening browser
+python -m cli.main serve --no-browser
 ```
 
 **CLI Reference:**
@@ -280,16 +314,16 @@ python -m cli.main serve --port 9000 --host 0.0.0.0
 Usage: python -m cli.main [OPTIONS] COMMAND [ARGS]
 
 Global Options:
-  --config PATH          Config file path (default: config/default.yaml)
-  --model-dir PATH       Model cache directory (default: ./models)
-  --device [auto|cuda|cpu]  Force device selection
-  --verbose              Debug logging
-  --quiet                Warnings only
+  --config PATH              Config file path (default: config/default.yaml)
+  --model-dir PATH           Model cache directory (default: ./models)
+  --device [auto|cuda|cpu]   Force device selection
+  --verbose                  Debug logging
+  --quiet                    Warnings only
 
 Commands:
   setup     Download and prepare the OCR model
   process   Process files or folders for OCR
-  serve     Start the web server
+  serve     Start the web server (API + frontend)
   info      Show system information
 ```
 
@@ -309,7 +343,7 @@ Commands:
 
 ## Configuration
 
-Default configuration lives in `config/default.yaml`:
+Default configuration lives in [`config/default.yaml`](config/default.yaml):
 
 ```yaml
 model:
@@ -323,12 +357,12 @@ processing:
   workers: 1
   recursive: true
   scientific_extraction: true
-  pdf_dpi: 300                # Resolution for PDF rendering
+  pdf_dpi: 300                # Resolution for PDF-to-image rendering
 
 converter:
   docx_method: "auto"         # auto | libreoffice | comtypes
   libreoffice_path: null      # Auto-detect from PATH
-  temp_dir: null              # System temp
+  temp_dir: null              # System temp directory
 
 server:
   host: "127.0.0.1"
@@ -344,7 +378,7 @@ output:
 python -m cli.main --device cpu --config my_config.yaml process files/
 ```
 
-**Override via environment variables** (prefix `OCR_`):
+**Override via environment variables:**
 ```bash
 export OCR_CONFIG=my_config.yaml
 ```
@@ -358,82 +392,118 @@ Settings can also be changed at runtime through the web UI **Settings** page or 
 ```
 ocr-deepseek/
 ├── backend/
-│   ├── main.py                 # FastAPI app entry point
-│   ├── config.py               # Configuration system (Pydantic + YAML)
+│   ├── main.py                 # FastAPI app + static file serving
+│   ├── config.py               # Configuration (Pydantic + YAML)
 │   ├── api/
 │   │   ├── routes.py           # REST API endpoints
 │   │   └── schemas.py          # Request/response models
 │   ├── model/
-│   │   ├── manager.py          # Model download, load, GPU/CPU detection (singleton)
+│   │   ├── manager.py          # Model lifecycle (download, load, GPU/CPU, singleton)
 │   │   └── inference.py        # Thread-safe OCR inference wrapper
 │   ├── pipeline/
 │   │   ├── orchestrator.py     # Job coordination & batch processing
 │   │   ├── converter.py        # PDF/DOCX/image → images conversion
-│   │   ├── extractor.py        # Scientific metadata extraction
+│   │   ├── extractor.py        # Scientific metadata extraction (regex/heuristic)
 │   │   └── formatter.py        # JSON / Markdown / XML output
 │   ├── workers/
 │   │   └── pool.py             # Configurable ThreadPoolExecutor
 │   └── utils/
 │       ├── file_scanner.py     # Recursive directory scanning
-│       └── page_selector.py    # Page range parser
+│       └── page_selector.py    # Page range parser ("1-3,5,7-10")
 ├── cli/
-│   └── main.py                 # Click-based CLI
+│   └── main.py                 # Click-based CLI (setup, process, serve, info)
 ├── frontend/                   # Vite + React + TypeScript
 │   └── src/
-│       ├── App.tsx
-│       ├── api.ts              # API client
-│       ├── components/         # FileUpload, JobQueue, ResultViewer, etc.
-│       └── pages/              # ProcessPage, SettingsPage
+│       ├── App.tsx             # Main app with page routing
+│       ├── api.ts              # API client wrapper
+│       ├── components/
+│       │   ├── FileUpload.tsx      # Drag-and-drop file upload
+│       │   ├── JobQueue.tsx        # Live job progress tracking
+│       │   ├── ModelStatus.tsx     # Model download/load/device switcher
+│       │   ├── ResultViewer.tsx    # Structured + raw result display
+│       │   └── SettingsPanel.tsx   # Processing options form
+│       └── pages/
+│           ├── ProcessPage.tsx     # Main processing workflow
+│           └── SettingsPage.tsx    # Global settings
+├── scripts/
+│   ├── download_wheels.py      # Download CPU+GPU wheels for offline use
+│   └── build_portable.py       # Build fully portable zip package
 ├── config/
 │   └── default.yaml            # Default configuration
-├── start_windows.bat           # One-click Windows launcher
-├── start_linux.sh              # One-click Linux/macOS launcher
+├── vendor/                     # Bundled wheels (created by build_portable.py)
+│   ├── common/                 # Shared dependencies
+│   ├── cpu/                    # PyTorch CPU wheels
+│   └── gpu/                    # PyTorch CUDA + flash-attn wheels
+├── models/                     # Downloaded model cache (gitignored)
+├── output/                     # Default output directory (gitignored)
+├── start_windows.bat           # One-click Windows launcher (--cpu/--gpu/--auto)
+├── start_linux.sh              # One-click Linux/macOS launcher (--cpu/--gpu/--auto)
 ├── requirements.txt            # Core Python dependencies
-├── requirements-gpu.txt        # GPU-specific (torch + flash-attn)
+├── requirements-gpu.txt        # GPU-specific (torch CUDA + flash-attn)
 └── requirements-cpu.txt        # CPU-specific (torch CPU)
 ```
 
 ### Processing Pipeline
 
 ```
-Input (files / folder)
+Input (files / folder + options)
   │
   ▼
-File Scanner ─── filters by supported extensions, recursive walk
+File Scanner ─── filter by supported extensions, recursive directory walk
   │
   ▼
-Page Selection ─── parse "1-3,5" ranges for PDFs
+Page Selection ─── parse "1-3,5" ranges for PDFs, validate against page count
   │
   ▼
 Format Converter
-  ├── PDF  → PyMuPDF renders pages to PNG at configurable DPI
-  ├── DOCX → LibreOffice/Word → PDF → PNG
-  └── Image → passthrough (validate format)
+  ├── PDF  → PyMuPDF renders pages to PNG at configurable DPI (default 300)
+  ├── DOCX → LibreOffice/Word COM → PDF → PNG
+  └── Image → passthrough (validate format, return as-is)
   │
   ▼
-Worker Pool ─── ThreadPoolExecutor (1..N workers)
+Worker Pool ─── ThreadPoolExecutor (1..N workers, default 1)
   │
   ▼
-OCR Inference ─── DeepSeek-OCR-2 model (thread-safe, locked)
+OCR Inference ─── DeepSeek-OCR-2 model (thread-safe behind lock)
+  │               Prompt: layout mode or plain mode
+  │
+  ▼
+Page Assembly ─── concatenate per-page results, maintain page boundaries
   │
   ▼
 Scientific Extractor ─── regex/heuristic parsing of markdown output
-  │                       extracts: title, authors, journal, abstract,
-  │                       DOI, figure captions (with confidence scores)
+  │                       title, authors, journal, abstract, DOI, figures
+  │                       each field with confidence score (0.0-1.0)
   │
   ▼
-Output Formatter ─── JSON / Markdown / XML
+Output Formatter ─── JSON / Markdown / XML with full metadata
   │
   ▼
-Write to disk / Return via API
+Write to disk (CLI) / Return via API (web)
 ```
+
+### GPU Fallback Chain
+
+The model manager tries loading in this order, falling through on failure:
+
+```
+1. flash_attention_2 on CUDA (bf16)     ← fastest, requires flash-attn package
+      │ ImportError / build failure
+      ▼
+2. eager attention on CUDA (bf16)       ← still fast, no flash-attn needed
+      │ RuntimeError (OOM / CUDA error)
+      ▼
+3. eager attention on CPU (float32)     ← slowest, works everywhere
+```
+
+This means the app **always works** regardless of GPU availability, CUDA version, or whether flash-attn compiled successfully.
 
 ### Key Design Decisions
 
-- **ThreadPoolExecutor** (not multiprocessing) — the GPU model can't be forked; threads share it behind a lock. Workers parallelize file I/O and conversion while inference stays serialized.
-- **Scientific extraction via heuristics** — regex-based parsing on layout-preserving markdown. No second model pass, so it's fast. Each field gets a confidence score.
-- **GPU fallback chain** — tries `flash_attention_2` → falls back to `eager` attention (still on CUDA with bf16) → falls back to CPU with float32.
-- **Frontend served by FastAPI** — after `npm run build`, static files are mounted at `/`. During development, Vite proxies API calls.
+- **ThreadPoolExecutor** (not multiprocessing) — the GPU model can't be pickled/forked; threads share it behind a lock. Workers parallelize file I/O and conversion while inference stays serialized.
+- **Scientific extraction via heuristics** — regex-based parsing on layout-preserving markdown output. No second model pass, keeping it fast. Each field gets a confidence score.
+- **Portable dual-torch builds** — `vendor/cpu/` and `vendor/gpu/` ship both torch variants. The launcher uses `nvidia-smi` (no Python needed) for hardware detection and installs the correct one.
+- **Frontend served by FastAPI** — after `npm run build`, static files are mounted at `/`. During development, Vite dev server proxies API calls to the backend.
 
 ---
 
@@ -445,11 +515,12 @@ All endpoints are prefixed with `/api/v1`.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/status` | Model status, device info, VRAM usage |
+| `GET` | `/status` | Model status, device info, VRAM usage, download progress |
 | `POST` | `/model/download` | Start model download (background task) |
-| `POST` | `/model/load` | Load model into memory |
+| `POST` | `/model/load` | Load model into memory. Body: `{"device": "auto\|cuda\|cpu"}` |
+| `POST` | `/model/unload` | Unload model from memory (free GPU/RAM) |
 | `GET` | `/config` | Get current configuration |
-| `PUT` | `/config` | Update configuration |
+| `PUT` | `/config` | Update configuration at runtime |
 
 ### Processing
 
@@ -458,33 +529,74 @@ All endpoints are prefixed with `/api/v1`.
 | `POST` | `/process/file` | Upload and process a single file (multipart form) |
 | `POST` | `/process/folder` | Process a local folder path (JSON body) |
 
+**`/process/file` form fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `file` | File | required | The document to process |
+| `output_format` | string | `json` | `json`, `markdown`, or `xml` |
+| `ocr_mode` | string | `layout` | `layout` or `plain` |
+| `pages` | string | all | Page range for PDFs, e.g. `"1-3,5"` |
+| `scientific` | boolean | `true` | Enable scientific metadata extraction |
+
+**`/process/folder` JSON body:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `folder_path` | string | required | Path to the folder on the server |
+| `recursive` | boolean | `true` | Scan subfolders |
+| `output_format` | string | `json` | `json`, `markdown`, or `xml` |
+| `ocr_mode` | string | `layout` | `layout` or `plain` |
+| `pages` | string | all | Page range for PDFs |
+| `scientific` | boolean | `true` | Scientific metadata extraction |
+| `workers` | integer | `1` | Concurrent worker threads |
+| `output_dir` | string | config default | Output directory path |
+
 ### Jobs
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/jobs` | List all jobs |
-| `GET` | `/jobs/{id}` | Get job status and progress |
-| `GET` | `/jobs/{id}/result` | Get job output content |
+| `GET` | `/jobs` | List all jobs with status summary |
+| `GET` | `/jobs/{id}` | Get job status, progress, and file results |
+| `GET` | `/jobs/{id}/result` | Get full output content for all processed files |
 | `DELETE` | `/jobs/{id}` | Cancel a running job |
 
-### Example: Process a file via API
+### Example: End-to-end API usage
 
 ```bash
-# Upload and process
+# 1. Check status
+curl http://127.0.0.1:8000/api/v1/status
+
+# 2. Load model on GPU
+curl -X POST http://127.0.0.1:8000/api/v1/model/load \
+  -H "Content-Type: application/json" \
+  -d '{"device": "cuda"}'
+
+# 3. Upload and process a PDF
 curl -X POST http://127.0.0.1:8000/api/v1/process/file \
   -F "file=@paper.pdf" \
   -F "output_format=json" \
   -F "ocr_mode=layout" \
   -F "pages=1-5" \
   -F "scientific=true"
-
 # Response: {"job_id": "abc-123-..."}
 
-# Check progress
+# 4. Poll for progress
 curl http://127.0.0.1:8000/api/v1/jobs/abc-123-...
 
-# Get results
+# 5. Get results
 curl http://127.0.0.1:8000/api/v1/jobs/abc-123-.../result
+
+# 6. Switch to CPU mode at runtime
+curl -X POST http://127.0.0.1:8000/api/v1/model/unload
+curl -X POST http://127.0.0.1:8000/api/v1/model/load \
+  -H "Content-Type: application/json" \
+  -d '{"device": "cpu"}'
+
+# 7. Process a local folder
+curl -X POST http://127.0.0.1:8000/api/v1/process/folder \
+  -H "Content-Type: application/json" \
+  -d '{"folder_path": "/path/to/papers", "output_format": "markdown", "workers": 4}'
 ```
 
 ---
@@ -542,6 +654,11 @@ The dominant sequence transduction models...
 ### Page 1
 ...
 
+---
+
+### Page 2
+...
+
 ## Figures
 ### Figure 1
 The Transformer model architecture.
@@ -557,6 +674,7 @@ The Transformer model architecture.
     <authors>
       <author>Ashish Vaswani</author>
       <author>Noam Shazeer</author>
+      <author>Niki Parmar</author>
     </authors>
     <journal>Proceedings of NeurIPS 2017</journal>
     <abstract>The dominant sequence transduction models...</abstract>
@@ -569,9 +687,38 @@ The Transformer model architecture.
   </metadata>
   <pages>
     <page number="1">...</page>
+    <page number="2">...</page>
   </pages>
 </document>
 ```
+
+---
+
+## OCR Modes
+
+| Mode | Prompt | Best For |
+|------|--------|----------|
+| **layout** | `<image>\n<\|grounding\|>Convert the document to markdown.` | Scientific papers, structured documents — preserves headings, tables, figures, layout |
+| **plain** | `<image>\nFree OCR.` | Simple text extraction, handwritten notes, receipts, plain text documents |
+
+Use **layout** mode (default) for scientific documents. It produces markdown with headings, bold text, and structural markers that the scientific extractor depends on. Use **plain** mode when you only need raw text without structure.
+
+---
+
+## Scientific Metadata Extraction
+
+The extractor parses the layout-preserving OCR output using regex and heuristics. It runs automatically in **layout** mode (disable with `--no-scientific`).
+
+| Field | Extraction Method | Typical Confidence |
+|-------|-------------------|--------------------|
+| **Title** | First `#` heading or bold text at document top | 80-95% |
+| **Authors** | Text between title and abstract, name pattern matching, affiliation stripping | 70-85% |
+| **Journal / Conference** | Pattern matching: "Journal of...", "Proceedings of...", IEEE, ACM, Springer, arXiv, etc. | 75-80% |
+| **Abstract** | Content following "Abstract" heading/label until next section | 85-90% |
+| **DOI** | Regex: `10.\d{4,}/\S+` | 90-95% |
+| **Figures** | `Figure N:` / `Fig. N:` patterns with multi-line caption capture | 80-85% |
+
+Each field includes a confidence score (0.0 - 1.0) in the output. Fields that couldn't be identified are set to `null` rather than guessed.
 
 ---
 
@@ -591,7 +738,7 @@ DOCX files are converted to PDF first, then rendered to images for OCR. The conv
 - **Ubuntu/Debian**: `sudo apt install libreoffice`
 - **macOS**: `brew install --cask libreoffice`
 
-You can force a specific method in `config/default.yaml`:
+Force a specific method in `config/default.yaml`:
 ```yaml
 converter:
   docx_method: "libreoffice"  # or "comtypes"
@@ -600,84 +747,75 @@ converter:
 
 ---
 
+## Performance
+
+Approximate processing times per page (standard A4 scientific paper, 300 DPI, layout mode):
+
+| Device | Time per Page | Notes |
+|--------|---------------|-------|
+| NVIDIA RTX 3090 (24GB) | ~2-4 sec | flash_attention_2 |
+| NVIDIA RTX 3060 (6GB) | ~4-8 sec | eager attention |
+| NVIDIA RTX 3060 (6GB) | ~3-6 sec | flash_attention_2 |
+| CPU (modern 8-core) | ~30-60 sec | float32 |
+
+**Tips for faster CPU processing:**
+- Lower DPI: set `processing.pdf_dpi: 150` in config (trades quality for speed)
+- Use `plain` mode instead of `layout` if structure isn't needed
+- Process specific pages: `-p "1-5"` instead of entire large PDFs
+- Increase workers for folder processing: `-w 4` (parallelizes file I/O, inference stays serial)
+
+---
+
 ## Troubleshooting
 
 ### Model download fails or is slow
 
-The model is ~6GB. If the download stalls, re-run `python -m cli.main setup`. HuggingFace Hub supports resumable downloads automatically.
+The model is ~6GB. If the download stalls, re-run `python -m cli.main setup`. HuggingFace Hub supports resumable downloads automatically. For portable builds, the model is included in the zip.
 
 ### `flash-attn` fails to install on Windows
 
-Building flash-attn from source requires CUDA Toolkit and a C++ compiler (MSVC). If it fails, the app automatically falls back to eager attention (still uses GPU with bf16). You can ignore this error.
+Building flash-attn from source requires CUDA Toolkit and a C++ compiler (MSVC). If it fails, the app automatically falls back to eager attention (still uses GPU with bf16, slightly slower). You can safely ignore this error.
 
 ### CUDA out of memory
 
-The 3B model in bf16 needs ~6GB VRAM. Close other GPU applications. If your GPU has less VRAM, use CPU mode:
+The 3B model in bf16 needs ~6GB VRAM. Close other GPU applications. If your GPU has less VRAM:
 ```bash
 python -m cli.main --device cpu process paper.pdf
+```
+Or switch to CPU in the web UI via the device dropdown.
+
+### CPU-only torch on a GPU machine
+
+If you set up the environment on a CPU machine and moved it to a GPU machine, the launcher will auto-detect this via `nvidia-smi` and reinstall GPU torch. You can also force it:
+```bash
+start_windows.bat --gpu
+# or manually:
+pip install torch==2.6.0 --force-reinstall
 ```
 
 ### DOCX conversion fails
 
-Ensure LibreOffice is installed and `soffice` is in your PATH. On Windows, Microsoft Word works automatically if installed. Check your config:
+Ensure LibreOffice is installed and `soffice` is in your PATH. On Windows, Microsoft Word works automatically if installed. Check:
 ```bash
 python -m cli.main info
+soffice --version          # Linux/macOS
 ```
 
 ### Frontend not loading
 
-The web UI requires building the frontend first:
+Build the frontend first:
 ```bash
 cd frontend && npm install && npm run build && cd ..
 ```
-Requires Node.js 18+. Without it, use the CLI instead.
+Requires Node.js 18+. Without it, use the CLI instead — all features are available.
 
-### Slow processing on CPU
+### Portable build: wrong platform wheels
 
-CPU mode processes documents significantly slower than GPU. Tips:
-- Reduce DPI: set `processing.pdf_dpi: 150` in config
-- Process specific pages: `-p "1-5"` instead of entire PDFs
-- Use `plain` mode instead of `layout` if structure isn't needed
-
----
-
-## OCR Modes
-
-| Mode | Prompt | Best For |
-|------|--------|----------|
-| **layout** | `<image>\n<\|grounding\|>Convert the document to markdown.` | Scientific papers, structured documents, preserves headings/tables/figures |
-| **plain** | `<image>\nFree OCR.` | Simple text extraction, handwritten notes, receipts |
-
----
-
-## Scientific Metadata Extraction
-
-The extractor parses the layout-preserving OCR output using regex and heuristics:
-
-| Field | Method | Typical Confidence |
-|-------|--------|--------------------|
-| **Title** | First `#` heading or bold text at top | 80-95% |
-| **Authors** | Text between title and abstract, name pattern matching | 70-85% |
-| **Journal** | Pattern matching (Journal of..., IEEE, ACM, arXiv, etc.) | 75-80% |
-| **Abstract** | Content after "Abstract" heading until next section | 85-90% |
-| **DOI** | Regex: `10.\d{4,}/\S+` | 90-95% |
-| **Figures** | `Figure N:` / `Fig. N:` patterns with captions | 80-85% |
-
-Each field includes a confidence score (0.0 - 1.0) in the output. Fields that couldn't be identified are set to `null`.
-
----
-
-## Performance
-
-Approximate processing times per page (measured on standard A4 scientific paper pages):
-
-| Device | Time per Page |
-|--------|---------------|
-| NVIDIA RTX 3090 | ~2-4 seconds |
-| NVIDIA RTX 3060 (6GB) | ~4-8 seconds |
-| CPU (modern 8-core) | ~30-60 seconds |
-
-> Times vary based on page complexity, DPI, and OCR mode.
+The `download_wheels.py` script downloads wheels for the current platform by default. For cross-platform portable builds:
+```bash
+# Download Windows wheels on a Linux build machine:
+python scripts/download_wheels.py --platform win_amd64 --python 3.12
+```
 
 ---
 
@@ -688,4 +826,4 @@ This project is open source. The DeepSeek-OCR-2 model is released under the [Apa
 ## Acknowledgements
 
 - [DeepSeek-AI](https://github.com/deepseek-ai) for the DeepSeek-OCR-2 model
-- [oobabooga/text-generation-webui](https://github.com/oobabooga/text-generation-webui) for launcher inspiration
+- [oobabooga/text-generation-webui](https://github.com/oobabooga/text-generation-webui) for launcher/portability inspiration
