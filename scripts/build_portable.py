@@ -86,7 +86,7 @@ def step_build_frontend():
     return run(["npm", "run", "build"], "npm run build", cwd=frontend, shell=IS_WINDOWS)
 
 
-def step_create_zip(output_path: str):
+def step_create_zip(output_path: str, include_model: bool = True):
     """Create the portable zip file."""
     print("\n" + "=" * 60)
     print("  Step 4: Creating portable zip")
@@ -99,6 +99,8 @@ def step_create_zip(output_path: str):
         ".git", "__pycache__", "venv", ".venv", "env",
         "node_modules", ".claude", ".env",
     }
+    if not include_model:
+        exclude.add("models")
     exclude_extensions = {".pyc", ".pyo"}
 
     print(f"Creating {output}...")
@@ -165,7 +167,7 @@ def main():
 
     # Step 4: Zip
     if not args.no_zip:
-        step_create_zip(args.output)
+        step_create_zip(args.output, include_model=not args.no_model)
 
     print("\n" + "=" * 60)
     print("  DONE!")
