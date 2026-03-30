@@ -1,0 +1,25 @@
+model:
+  model_id: "deepseek-ai/DeepSeek-OCR-2"
+  cache_dir: "./models"
+  device: "auto"  # auto | cuda | cpu
+
+processing:
+  default_ocr_mode: "layout"        # layout | plain
+  default_output_format: "json"     # json | markdown | xml
+  workers: 1                        # 1 = sequential
+  recursive: true
+  scientific_extraction: true
+  pdf_dpi: 300
+
+converter:
+  docx_method: "auto"               # auto | libreoffice | comtypes
+  libreoffice_path: null
+  temp_dir: null
+
+server:
+  host: "127.0.0.1"
+  port: 8000
+  auto_open_browser: true
+
+output:
+  default_dir: "./output"

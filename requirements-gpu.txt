@@ -1,0 +1,2 @@
+torch==2.6.0
+flash-attn==2.7.3 --no-build-isolation
