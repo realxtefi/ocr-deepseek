@@ -71,8 +71,11 @@ export default function SettingsPage() {
                 value={String(config.processing?.default_ocr_mode || 'layout')}
                 onChange={e => updateField('processing', 'default_ocr_mode', e.target.value)}
               >
-                <option value="layout">Layout</option>
-                <option value="plain">Plain</option>
+                <option value="layout">Layout (Markdown)</option>
+                <option value="plain">Plain Text</option>
+                <option value="ocr">OCR (Grounded)</option>
+                <option value="figure">Parse Figure</option>
+                <option value="describe">Describe Image</option>
               </select>
             </div>
 

@@ -8,6 +8,9 @@ logger = logging.getLogger(__name__)
 PROMPTS = {
     "layout": "<image>\n<|grounding|>Convert the document to markdown.",
     "plain": "<image>\nFree OCR.",
+    "ocr": "<image>\n<|grounding|>OCR this image.",
+    "figure": "<image>\nParse the figure.",
+    "describe": "<image>\nDescribe this image in detail.",
 }
 
 

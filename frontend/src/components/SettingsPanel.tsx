@@ -11,10 +11,35 @@ interface Props {
   onChange: (settings: Settings) => void
 }
 
+const MODE_INFO: Record<string, { label: string; help: string }> = {
+  layout: {
+    label: 'Layout (Markdown)',
+    help: 'Converts documents to structured Markdown preserving headings, columns, tables, and figure positions. Best for papers, reports, and multi-column documents.',
+  },
+  plain: {
+    label: 'Plain Text',
+    help: 'Extracts raw text without layout or structure. Fast and simple, best when you only need the text content.',
+  },
+  ocr: {
+    label: 'OCR (Grounded)',
+    help: 'Extracts text with bounding box coordinates for each element. Useful when you need to know where text appears on the page.',
+  },
+  figure: {
+    label: 'Parse Figure',
+    help: 'Specialized for charts, diagrams, and plots. Extracts data, labels, axes, and relationships from visual figures.',
+  },
+  describe: {
+    label: 'Describe Image',
+    help: 'Generates a detailed natural language description of the image. Best for photos, illustrations, and complex visuals.',
+  },
+}
+
 export default function SettingsPanel({ settings, onChange }: Props) {
   const update = (key: keyof Settings, value: string | boolean | number) => {
     onChange({ ...settings, [key]: value })
   }
+
+  const modeHelp = MODE_INFO[settings.ocr_mode]?.help
 
   return (
     <div className="settings-compact">
@@ -37,8 +62,9 @@ export default function SettingsPanel({ settings, onChange }: Props) {
             value={settings.ocr_mode}
             onChange={e => update('ocr_mode', e.target.value)}
           >
-            <option value="layout">Layout</option>
-            <option value="plain">Plain</option>
+            {Object.entries(MODE_INFO).map(([value, { label }]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
           </select>
         </div>
 
@@ -63,6 +89,12 @@ export default function SettingsPanel({ settings, onChange }: Props) {
           />
         </div>
       </div>
+
+      {modeHelp && (
+        <div className="mode-help">
+          {modeHelp}
+        </div>
+      )}
 
       <div className="form-group" style={{ marginTop: 8 }}>
         <label>

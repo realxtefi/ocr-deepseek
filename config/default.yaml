@@ -4,7 +4,7 @@ model:
   device: "auto"  # auto | cuda | cpu
 
 processing:
-  default_ocr_mode: "layout"        # layout | plain
+  default_ocr_mode: "layout"        # layout | plain | ocr | figure | describe
   default_output_format: "json"     # json | markdown | xml
   workers: 1                        # 1 = sequential
   recursive: true

@@ -274,7 +274,10 @@ class ModelManager:
                 return result, tmp_out
 
             # Otherwise read from saved output files
-            output_files = sorted(glob.glob(os.path.join(tmp_out, "*.md")))
+            # DeepSeek-OCR-2 saves to result.mmd (mathpix markdown)
+            output_files = sorted(glob.glob(os.path.join(tmp_out, "*.mmd")))
+            if not output_files:
+                output_files = sorted(glob.glob(os.path.join(tmp_out, "*.md")))
             if not output_files:
                 output_files = sorted(glob.glob(os.path.join(tmp_out, "*.txt")))
             if not output_files:

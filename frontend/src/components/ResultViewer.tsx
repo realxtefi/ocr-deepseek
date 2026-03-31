@@ -11,10 +11,12 @@ interface FileResult {
   error?: string
 }
 
+type TabType = 'preview' | 'raw'
+
 export default function ResultViewer({ jobId }: Props) {
   const [results, setResults] = useState<FileResult[]>([])
   const [selectedIdx, setSelectedIdx] = useState(0)
-  const [tab, setTab] = useState<'formatted' | 'raw'>('formatted')
+  const [tab, setTab] = useState<TabType>('preview')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -54,12 +56,21 @@ export default function ResultViewer({ jobId }: Props) {
     URL.revokeObjectURL(url)
   }
 
-  // Try to parse JSON for structured view
-  let structured: Record<string, unknown> | null = null
+  // Detect content type
+  let parsed: Record<string, unknown> | null = null
+  let contentType: 'json' | 'markdown' | 'xml' | 'text' = 'text'
   if (current?.content) {
-    try {
-      structured = JSON.parse(current.content)
-    } catch { /* not JSON */ }
+    const trimmed = current.content.trim()
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        parsed = JSON.parse(trimmed)
+        contentType = 'json'
+      } catch { /* not JSON */ }
+    } else if (trimmed.startsWith('<?xml') || trimmed.startsWith('<document')) {
+      contentType = 'xml'
+    } else if (trimmed.startsWith('#') || /^\*\*/.test(trimmed)) {
+      contentType = 'markdown'
+    }
   }
 
   return (
@@ -99,20 +110,24 @@ export default function ResultViewer({ jobId }: Props) {
 
       {current?.content && (
         <>
-          {structured && (
-            <div className="result-tabs">
-              <button className={tab === 'formatted' ? 'active' : ''} onClick={() => setTab('formatted')}>
-                Structured
-              </button>
-              <button className={tab === 'raw' ? 'active' : ''} onClick={() => setTab('raw')}>
-                Raw
-              </button>
-            </div>
-          )}
+          <div className="result-tabs">
+            <button className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}>
+              Preview
+            </button>
+            <button className={tab === 'raw' ? 'active' : ''} onClick={() => setTab('raw')}>
+              Raw
+            </button>
+          </div>
 
-          {tab === 'formatted' && structured ? (
-            <div className="result-content">
-              <StructuredView data={structured} />
+          {tab === 'preview' ? (
+            <div className="result-content result-preview">
+              {contentType === 'json' && parsed ? (
+                <StructuredView data={parsed} />
+              ) : contentType === 'markdown' ? (
+                <MarkdownPreview content={current.content} />
+              ) : (
+                <pre>{current.content}</pre>
+              )}
             </div>
           ) : (
             <div className="result-content">
@@ -125,49 +140,181 @@ export default function ResultViewer({ jobId }: Props) {
   )
 }
 
+
+function MarkdownPreview({ content }: { content: string }) {
+  // Simple markdown-to-HTML renderer for common patterns
+  const html = markdownToHtml(content)
+  return <div className="md-preview" dangerouslySetInnerHTML={{ __html: html }} />
+}
+
+
+function markdownToHtml(md: string): string {
+  const lines = md.split('\n')
+  const out: string[] = []
+  let inParagraph = false
+
+  const inline = (text: string): string => {
+    return text
+      // Bold
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      // Italic
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      // Inline code
+      .replace(/`(.+?)`/g, '<code>$1</code>')
+      // Links
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+  }
+
+  const closeParagraph = () => {
+    if (inParagraph) {
+      out.push('</p>')
+      inParagraph = false
+    }
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    // Headings
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/)
+    if (headingMatch) {
+      closeParagraph()
+      const level = headingMatch[1].length
+      out.push(`<h${level}>${inline(headingMatch[2])}</h${level}>`)
+      continue
+    }
+
+    // Horizontal rule
+    if (trimmed === '---' || trimmed === '***' || trimmed === '___') {
+      closeParagraph()
+      out.push('<hr />')
+      continue
+    }
+
+    // Empty line
+    if (!trimmed) {
+      closeParagraph()
+      continue
+    }
+
+    // Regular text - collect into paragraphs
+    if (!inParagraph) {
+      out.push('<p>')
+      inParagraph = true
+    } else {
+      out.push(' ')
+    }
+    out.push(inline(trimmed))
+  }
+
+  closeParagraph()
+  return out.join('\n')
+}
+
+
 function StructuredView({ data }: { data: Record<string, unknown> }) {
   const meta = data.metadata as Record<string, unknown> | undefined
 
+  // If no metadata structure, show formatted JSON
   if (!meta) {
     return <pre>{JSON.stringify(data, null, 2)}</pre>
   }
 
+  const title = meta.title ? String(meta.title) : ''
+  const journal = meta.journal_or_series ? String(meta.journal_or_series) : ''
+  const doi = meta.doi ? String(meta.doi) : ''
+  const abstract = meta.abstract ? String(meta.abstract) : ''
+  const authors = Array.isArray(meta.authors) ? (meta.authors as string[]) : []
+  const confidence = meta.extraction_confidence as Record<string, number> | undefined
+  const figures = Array.isArray(meta.figures) ? (meta.figures as Array<{ number: number; caption: string }>) : []
+  const pages = Array.isArray(data.pages) ? (data.pages as Array<{ page_number: number; text: string }>) : []
+
   return (
-    <div style={{ fontFamily: 'inherit' }}>
-      {meta.title && <div style={{ marginBottom: 8 }}><strong>Title:</strong> {String(meta.title)}</div>}
-      {Array.isArray(meta.authors) && meta.authors.length > 0 && (
-        <div style={{ marginBottom: 8 }}><strong>Authors:</strong> {meta.authors.join(', ')}</div>
-      )}
-      {meta.journal_or_series && (
-        <div style={{ marginBottom: 8 }}><strong>Journal:</strong> {String(meta.journal_or_series)}</div>
-      )}
-      {meta.doi && <div style={{ marginBottom: 8 }}><strong>DOI:</strong> {String(meta.doi)}</div>}
-      {meta.abstract && (
-        <div style={{ marginBottom: 8 }}>
-          <strong>Abstract:</strong>
-          <div style={{ marginTop: 4, paddingLeft: 8, borderLeft: '2px solid var(--border)' }}>
-            {String(meta.abstract)}
+    <div className="structured-view">
+      {/* Metadata section */}
+      <div className="sv-section">
+        <div className="sv-section-title">Metadata</div>
+        {title && (
+          <div className="sv-field">
+            <span className="sv-label">Title</span>
+            <span className="sv-value sv-title">{title}</span>
+            {confidence?.title != null && <ConfBadge value={confidence.title} />}
           </div>
+        )}
+        {authors.length > 0 && (
+          <div className="sv-field">
+            <span className="sv-label">Authors</span>
+            <span className="sv-value">{authors.join(', ')}</span>
+            {confidence?.authors != null && <ConfBadge value={confidence.authors} />}
+          </div>
+        )}
+        {journal && (
+          <div className="sv-field">
+            <span className="sv-label">Journal</span>
+            <span className="sv-value">{journal}</span>
+            {confidence?.journal_or_series != null && <ConfBadge value={confidence.journal_or_series} />}
+          </div>
+        )}
+        {doi && (
+          <div className="sv-field">
+            <span className="sv-label">DOI</span>
+            <span className="sv-value">
+              <a href={`https://doi.org/${doi}`} target="_blank" rel="noopener">{doi}</a>
+            </span>
+            {confidence?.doi != null && <ConfBadge value={confidence.doi} />}
+          </div>
+        )}
+      </div>
+
+      {/* Abstract */}
+      {abstract && (
+        <div className="sv-section">
+          <div className="sv-section-title">
+            Abstract
+            {confidence?.abstract != null && <ConfBadge value={confidence.abstract} />}
+          </div>
+          <div className="sv-abstract">{abstract}</div>
         </div>
       )}
-      {Array.isArray(meta.figures) && meta.figures.length > 0 && (
-        <div style={{ marginBottom: 8 }}>
-          <strong>Figures:</strong>
-          {(meta.figures as Array<{ number: number; caption: string }>).map(fig => (
-            <div key={fig.number} style={{ marginTop: 4, paddingLeft: 8 }}>
-              <em>Figure {fig.number}:</em> {fig.caption}
+
+      {/* Figures */}
+      {figures.length > 0 && (
+        <div className="sv-section">
+          <div className="sv-section-title">Figures</div>
+          {figures.map(fig => (
+            <div key={fig.number} className="sv-field">
+              <span className="sv-label">Fig {fig.number}</span>
+              <span className="sv-value">{fig.caption}</span>
             </div>
           ))}
         </div>
       )}
-      {meta.extraction_confidence && (
-        <div style={{ marginTop: 12, fontSize: '0.8rem', color: 'var(--text-dim)' }}>
-          <strong>Confidence:</strong>{' '}
-          {Object.entries(meta.extraction_confidence as Record<string, number>)
-            .map(([k, v]) => `${k}: ${Math.round(v * 100)}%`)
-            .join(' | ')}
+
+      {/* Page text preview */}
+      {pages.length > 0 && (
+        <div className="sv-section">
+          <div className="sv-section-title">Content ({pages.length} page{pages.length > 1 ? 's' : ''})</div>
+          {pages.map(page => (
+            <div key={page.page_number} className="sv-page">
+              {pages.length > 1 && (
+                <div className="sv-page-header">Page {page.page_number}</div>
+              )}
+              <MarkdownPreview content={page.text} />
+            </div>
+          ))}
         </div>
       )}
     </div>
+  )
+}
+
+
+function ConfBadge({ value }: { value: number }) {
+  const pct = Math.round(value * 100)
+  const color = pct >= 80 ? 'var(--success)' : pct >= 50 ? 'var(--warning)' : 'var(--text-dim)'
+  return (
+    <span className="conf-badge" style={{ color, borderColor: color }}>
+      {pct}%
+    </span>
   )
 }
